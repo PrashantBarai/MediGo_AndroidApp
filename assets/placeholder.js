@@ -1,0 +1,2 @@
+// This file provides a placeholder image as base64 for when actual images are unavailable
+export const placeholderImageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAAGQAQMAAAC6caSPAAAAA1BMVEXm5uTrDfAZAAAAI0lEQVR42u3BMQEAAADCIPuntsROYAAAAAAAAAAAAAAAAICrAcNaAAHaLB2dAAAAAElFTkSuQmCC';
