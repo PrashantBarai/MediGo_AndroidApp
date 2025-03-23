@@ -8,7 +8,7 @@ const {
   B2_APPLICATION_KEY,
   B2_BUCKET_ID,
   B2_BUCKET_NAME
-} = Constants.manifest?.extra || {};
+} = Constants.expoConfig?.extra || {};
 
 // Backblaze B2 API endpoints
 const B2_API_URL = 'https://api.backblazeb2.com';

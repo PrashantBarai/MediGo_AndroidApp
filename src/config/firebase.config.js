@@ -8,7 +8,7 @@ const {
   FIREBASE_STORAGE_BUCKET,
   FIREBASE_MESSAGING_SENDER_ID,
   FIREBASE_APP_ID
-} = Constants.manifest?.extra || {};
+} = Constants.expoConfig?.extra || {};
 
 // Firebase configuration
 export const firebaseConfig = {

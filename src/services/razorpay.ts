@@ -4,7 +4,7 @@ import Constants from 'expo-constants';
 // Access environment variables
 const {
   RAZORPAY_KEY_ID
-} = Constants.manifest?.extra || {};
+} = Constants.expoConfig?.extra || {};
 
 // This is a simplified implementation. In a real app, you'd use a proper Razorpay SDK
 // For Expo projects, you might use a WebView-based approach or the Razorpay package

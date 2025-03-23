@@ -7,7 +7,7 @@ export default {
   orientation: "portrait",
   icon: "./assets/icon.png",
   splash: {
-    image: "./assets/splash.png",
+    image: "./assets/splash-icon.png",
     resizeMode: "contain",
     backgroundColor: "#ffffff"
   },
@@ -38,6 +38,8 @@ export default {
   web: {
     favicon: "./assets/favicon.png"
   },
+  // Setting newArchEnabled to false since some packages don't support it
+  newArchEnabled: false,
   extra: {
     // Firebase Configuration
     FIREBASE_API_KEY: process.env.FIREBASE_API_KEY,
