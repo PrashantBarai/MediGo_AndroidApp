@@ -1,17 +1,33 @@
 const express = require('express');
 const router = express.Router();
-const productController = require('../controllers/product.controller');
-const authMiddleware = require('../middleware/auth.middleware');
+const { upload, uploadToB2 } = require('../middleware/upload.middleware');
+const {
+  getProducts,
+  getProductById,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  deleteProductImage
+} = require('../controllers/product.controller');
 
-// Public routes
-router.get('/', productController.getAllProducts);
-router.get('/category/:category', productController.getProductsByCategory);
-router.get('/pharmacy/:pharmacyId', productController.getProductsByPharmacy);
-router.get('/:id', productController.getProduct);
+// Firebase authentication will be added later
 
-// Protected routes
-router.post('/', authMiddleware, productController.createProduct);
-router.put('/:id', authMiddleware, productController.updateProduct);
-router.delete('/:id', authMiddleware, productController.deleteProduct);
+// Get all products
+router.get('/', getProducts);
+
+// Get a specific product
+router.get('/:id', getProductById);
+
+// Create a new product
+router.post('/', upload.array('images'), uploadToB2, createProduct);
+
+// Update a product
+router.put('/:id', upload.array('images'), uploadToB2, updateProduct);
+
+// Delete a product
+router.delete('/:id', deleteProduct);
+
+// Delete a product image
+router.post('/delete-image', deleteProductImage);
 
 module.exports = router;

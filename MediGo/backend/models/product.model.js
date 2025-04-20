@@ -10,29 +10,27 @@ const productSchema = new mongoose.Schema({
     required: true,
   },
   price: {
-    type: Number,
+    type: String,
     required: true,
   },
   category: {
     type: String,
     required: true,
     enum: [
-      'Nutritional Drinks',
-      'Ayurveda',
-      'Vitamins & Supplement',
-      'Healthcare Devices',
-      'Homeopathy',
-      'Diabetes Care'
+      'Tablets',
+      'Syrups',
+      'Devices',
+      'Supplements',
+      'Protection'
     ],
   },
-  image: {
-    type: String,
-    required: true,
-  },
+  images: [{
+    type: String
+  }],
   pharmacy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+    required: false,
   },
   stock: {
     type: Number,
@@ -40,15 +38,20 @@ const productSchema = new mongoose.Schema({
     default: 0,
   },
   discount: {
-    type: Number,
-    default: 0,
+    percentage: {
+      type: Number,
+      default: 0
+    },
+    validUntil: {
+      type: String
+    }
   },
   isAvailable: {
     type: Boolean,
     default: true,
   },
   manufacturingDate: {
-    type: Date,
+    type: String,
     required: true
   },
   manufacturer: {

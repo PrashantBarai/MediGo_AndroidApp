@@ -1,29 +1,63 @@
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, Image, Platform } from 'react-native';
+import React from 'react';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, Image, Platform, Alert, StyleSheet, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SearchBar } from 'react-native-elements';
+
+// Add API_URL constant
+const API_URL = 'http://192.168.1.102:8082/api';
 
 interface Product {
   id: string;
+  _id?: string;  // Add _id as optional
   name: string;
   description: string;
-  price: string;
-  stock: number;
-  category: string;
+  price: number;
   manufacturer: string;
+  category: string;
+  stock: number;
   manufacturingDate: string;
   prescriptionRequired: boolean;
-  ingredients: string[];
-  dosage: string;
+  ingredients?: string[];
+  dosage?: string;
   sideEffects?: string;
   storageInstructions?: string;
   images: string[];
+  newImages?: { uri: string }[];
   discount: {
-    percentage?: number;
-    validUntil?: string;
+    percentage: number;
+    validUntil: string;
   };
   rating: number;
   reviews: number;
+}
+
+interface ProductData {
+  name: string;
+  description: string;
+  price: string;
+  manufacturer: string;
+  category: string;
+  stock: string;
+  manufacturingDate: string;
+  prescriptionRequired: string;
+  ingredients?: string;
+  dosage?: string;
+  sideEffects?: string;
+  storageInstructions?: string;
+  images?: string[];
+  discount: {
+    percentage: number;
+    validUntil?: string;
+  };
+  _id?: string;
+}
+
+interface PendingImageDeletion {
+  url: string;
+  timestamp: number;
 }
 
 const PRODUCTS: Product[] = [
@@ -31,7 +65,7 @@ const PRODUCTS: Product[] = [
     id: 'PRD001',
     name: 'Paracetamol 500mg',
     description: 'Pain relief tablets for headache and fever',
-    price: '₹49.99',
+    price: 49.99,
     stock: 150,
     category: 'Tablets',
     manufacturer: 'Cipla Ltd',
@@ -53,7 +87,7 @@ const PRODUCTS: Product[] = [
     id: 'PRD002',
     name: 'Vitamin C 1000mg',
     description: 'Immunity booster',
-    price: '₹299.99',
+    price: 299.99,
     stock: 75,
     category: 'Supplements',
     manufacturer: 'Pfizer',
@@ -75,7 +109,7 @@ const PRODUCTS: Product[] = [
     id: 'PRD003',
     name: 'Blood Glucose Monitor',
     description: 'Digital meter',
-    price: '₹1499.99',
+    price: 1499.99,
     stock: 25,
     category: 'Devices',
     manufacturer: 'Medtronic',
@@ -97,7 +131,7 @@ const PRODUCTS: Product[] = [
     id: 'PRD004',
     name: 'N95 Masks (Pack of 10)',
     description: 'Protective masks',
-    price: '₹399.99',
+    price: 399.99,
     stock: 200,
     category: 'Protection',
     manufacturer: '3M',
@@ -119,7 +153,7 @@ const PRODUCTS: Product[] = [
     id: 'PRD005',
     name: 'Cough Syrup 100ml',
     description: 'For dry cough relief',
-    price: '₹89.99',
+    price: 89.99,
     stock: 45,
     category: 'Syrups',
     manufacturer: 'Bayer',
@@ -140,7 +174,7 @@ const PRODUCTS: Product[] = [
 ];
 
 const CATEGORIES = [
-  { label: 'All', icon: 'pill' },
+  { label: 'All', icon: 'view-grid' },  // Changed icon for All category
   { label: 'Tablets', icon: 'pill' },
   { label: 'Syrups', icon: 'bottle-tonic' },
   { label: 'Devices', icon: 'medical-bag' },
@@ -149,7 +183,8 @@ const CATEGORIES = [
 ];
 
 export default function Products() {
-  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -169,26 +204,297 @@ export default function Products() {
     month: '',
     year: ''
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingDeletions, setPendingDeletions] = useState<PendingImageDeletion[]>([]);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-  const filteredProducts = PRODUCTS.filter(product => {
-    const matchesCategory = selectedCategory === 'All' || product.category === selectedCategory;
-    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         product.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // Add fetchProducts function
+  const fetchProducts = async () => {
+    try {
+      const apiUrls = [
+        'http://192.168.1.102:8082/api/products',
+        'http://localhost:8082/api/products',
+        'http://10.0.2.2:8082/api/products'
+      ];
+      
+      let response = null;
+      let error = null;
+      
+      for (const apiUrl of apiUrls) {
+        try {
+          console.log(`Trying to fetch products from: ${apiUrl}`);
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          
+          response = await fetch(apiUrl, {
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            console.log(`Successfully connected to: ${apiUrl}`);
+            break;
+          }
+        } catch (err) {
+          console.error(`Failed to connect to ${apiUrl}:`, err);
+          error = err;
+        }
+      }
+      
+      if (!response || !response.ok) {
+        throw error || new Error('Failed to fetch products from all URLs');
+      }
+      
+      const data = await response.json();
+      console.log('Fetched products:', data);
+      
+      // Transform the data to match our Product interface
+      const transformedProducts = data.map((item: any) => {
+        // Clean up ingredients - ensure it's a simple array of strings
+        let cleanIngredients: string[] = [];
+        if (item.ingredients && Array.isArray(item.ingredients)) {
+          cleanIngredients = item.ingredients
+            .map((ingredient: any) => {
+              if (typeof ingredient === 'string') {
+                try {
+                  // Try to parse if it's a JSON string
+                  const parsed = JSON.parse(ingredient);
+                  if (Array.isArray(parsed)) {
+                    return parsed[0];
+                  }
+                  return ingredient;
+                } catch (e) {
+                  return ingredient;
+                }
+              }
+              return ingredient;
+            })
+            .filter((ingredient: any) => ingredient && ingredient.trim() !== '');
+        }
+        
+        return {
+          id: item._id,
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          stock: item.stock,
+          category: item.category,
+          manufacturer: item.manufacturer,
+          manufacturingDate: item.manufacturingDate || '',
+          prescriptionRequired: item.prescriptionRequired || false,
+          ingredients: cleanIngredients,
+          dosage: item.dosage || '',
+          sideEffects: item.sideEffects || '',
+          storageInstructions: item.storageInstructions || '',
+          images: item.images || [],
+          discount: {
+            percentage: item.discount?.percentage || 0,
+            validUntil: item.discount?.validUntil || ''
+          },
+          rating: item.rating || 0,
+          reviews: item.reviews || 0
+        };
+      });
+      
+      setProducts(transformedProducts);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching products:', err);
+      setError('Failed to load products. Please check your connection.');
+      setProducts(PRODUCTS);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const handleEdit = (product: Product) => {
-    setSelectedProduct(product);
+  // Add useEffect to fetch products on component mount
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  useEffect(() => {
+    // Filter products based on selected category and search query
+    let filtered = [...products];
+    
+    // Apply category filter
+    if (selectedCategory !== 'All') {
+      filtered = filtered.filter(product => product.category === selectedCategory);
+    }
+    
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(product => {
+        const name = product.name?.toLowerCase() ?? '';
+        const description = product.description?.toLowerCase() ?? '';
+        const ingredientMatch = product.ingredients?.some(
+          ingredient => (ingredient?.toLowerCase() ?? '').includes(query)
+        ) ?? false;
+        
+        return name.includes(query) || 
+               description.includes(query) || 
+               ingredientMatch;
+      });
+    }
+    
+    setFilteredProducts(filtered);
+  }, [products, selectedCategory, searchQuery]);
+
+  const handleSearch = (text?: string) => {
+    setSearchQuery(text || '');
+  };
+
+  const handleSearchClear = () => {
+    setSearchQuery('');
+  };
+
+  const handleEdit = async (product: Product) => {
+    if (product) {
+      try {
+        // Fetch the latest product data from the server
+        const apiUrls = [
+          `http://192.168.1.102:8082/api/products/${product.id}`,
+          `http://localhost:8082/api/products/${product.id}`,
+          `http://10.0.2.2:8082/api/products/${product.id}` // Android emulator localhost
+        ];
+        
+        let response = null;
+        let error = null;
+        
+        for (const apiUrl of apiUrls) {
+          try {
+            console.log(`Fetching product details from: ${apiUrl}`);
+            
+            // Add timeout to the fetch request
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
+            response = await fetch(apiUrl, {
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+              console.log(`Successfully fetched product details from: ${apiUrl}`);
+              break;
+            }
+          } catch (err) {
+            console.error(`Failed to fetch product details from ${apiUrl}:`, err);
+            error = err;
+          }
+        }
+        
+        if (!response || !response.ok) {
+          throw error || new Error('Failed to fetch product details');
+        }
+        
+        const updatedProductData = await response.json();
+        console.log('Fetched product details:', updatedProductData);
+        
+        // Transform the data to match our Product interface
+        const updatedProduct: Product = {
+          id: updatedProductData._id,
+          name: updatedProductData.name,
+          description: updatedProductData.description,
+          price: updatedProductData.price,
+          stock: updatedProductData.stock,
+          category: updatedProductData.category,
+          manufacturer: updatedProductData.manufacturer,
+          manufacturingDate: updatedProductData.manufacturingDate || '',
+          prescriptionRequired: updatedProductData.prescriptionRequired || false,
+          ingredients: updatedProductData.ingredients || [],
+          dosage: updatedProductData.dosage || '',
+          sideEffects: updatedProductData.sideEffects || '',
+          storageInstructions: updatedProductData.storageInstructions || '',
+          images: updatedProductData.images || [],
+          newImages: [], // Initialize newImages as empty array
+          discount: {
+            percentage: updatedProductData.discount?.percentage || 0,
+            validUntil: updatedProductData.discount?.validUntil || ''
+          },
+          rating: updatedProductData.rating || 0,
+          reviews: updatedProductData.reviews || 0
+        };
+        
+        console.log('Updated product with images:', updatedProduct.images);
+        
+        setSelectedProduct(updatedProduct);
+        
+        // Parse manufacturing date from dd-mm-yyyy format
+        if (updatedProduct.manufacturingDate) {
+          const [day, month, year] = updatedProduct.manufacturingDate.split('-');
+          setDate({ 
+            day: day || '', 
+            month: month || '', 
+            year: year || '' 
+          });
+        } else {
+          setDate({ day: '', month: '', year: '' });
+        }
+        
+        // Parse valid until date from dd-mm-yyyy format
+        if (updatedProduct.discount?.validUntil) {
+          const [day, month, year] = updatedProduct.discount.validUntil.split('-');
+          setValidUntilDate({ 
+            day: day || '', 
+            month: month || '', 
+            year: year || '' 
+          });
+        } else {
+          setValidUntilDate({ day: '', month: '', year: '' });
+        }
+        
     setIsEditing(true);
+        setIsAdding(false);
     setShowDetails(true);
+      } catch (error) {
+        console.error('Error fetching product details:', error);
+        Alert.alert('Error', 'Failed to fetch product details. Please try again.');
+        
+        // Fallback to using the product data we already have
+        setSelectedProduct({...product, newImages: []});
+        
+        // Parse manufacturing date from dd-mm-yyyy format
+        if (product.manufacturingDate) {
+          const [day, month, year] = product.manufacturingDate.split('-');
+          setDate({ 
+            day: day || '', 
+            month: month || '', 
+            year: year || '' 
+          });
+        } else {
+          setDate({ day: '', month: '', year: '' });
+        }
+        
+        // Parse valid until date from dd-mm-yyyy format
+        if (product.discount?.validUntil) {
+          const [day, month, year] = product.discount.validUntil.split('-');
+          setValidUntilDate({ 
+            day: day || '', 
+            month: month || '', 
+            year: year || '' 
+          });
+        } else {
+          setValidUntilDate({ day: '', month: '', year: '' });
+        }
+        
+        setIsEditing(true);
+        setIsAdding(false);
+        setShowDetails(true);
+      }
+    }
   };
 
   const handleAddNew = () => {
-    setSelectedProduct({
-      id: `PRD${PRODUCTS.length + 1}`,
+    const newProduct: Product = {
+      id: '',
       name: '',
       description: '',
-      price: '₹0.00',
+      price: 0,
       stock: 0,
       category: 'Tablets',
       manufacturer: '',
@@ -205,87 +511,313 @@ export default function Products() {
       },
       rating: 0,
       reviews: 0
-    });
+    };
+    setSelectedProduct(newProduct);
+    setDate({ day: '', month: '', year: '' });
+    setValidUntilDate({ day: '', month: '', year: '' });
     setIsAdding(true);
     setIsEditing(true);
     setShowDetails(true);
   };
 
   const handleSave = async () => {
+    if (!selectedProduct) return;
+
     try {
-      if (isAdding && selectedProduct) {
-        // Add new product
-        const newProduct: Product = {
-          ...selectedProduct,
-          id: `PRD${Date.now()}`, // Generate unique ID
-          price: selectedProduct.price.replace('₹', ''), // Remove ₹ symbol
-          stock: parseInt(selectedProduct.stock.toString()),
-          manufacturingDate: `${date.year}-${date.month}-${date.day}`,
-          discount: {
-            percentage: selectedProduct.discount?.percentage || 0,
-            validUntil: `${validUntilDate.year}-${validUntilDate.month}-${validUntilDate.day}`
-          }
-        };
-
-        // Make API call to add product
-        const response = await fetch('http://localhost:8082/api/products', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(newProduct),
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to add product');
-        }
-
-        // Add to local state
-        setProducts([...products, newProduct]);
-      } else if (selectedProduct) {
-        // Update existing product
-        const updatedProduct: Product = {
-          ...selectedProduct,
-          price: selectedProduct.price.replace('₹', ''),
-          stock: parseInt(selectedProduct.stock.toString()),
-          manufacturingDate: `${date.year}-${date.month}-${date.day}`,
-          discount: {
-            percentage: selectedProduct.discount?.percentage || 0,
-            validUntil: `${validUntilDate.year}-${validUntilDate.month}-${validUntilDate.day}`
-          }
-        };
-
-        // Make API call to update product
-        const response = await fetch(`http://localhost:8082/api/products/${selectedProduct.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(updatedProduct),
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to update product');
-        }
-
-        // Update local state
-        setProducts(products.map(p => p.id === selectedProduct.id ? updatedProduct : p));
+      // Validate required fields
+      if (!selectedProduct.name) {
+        Alert.alert('Error', 'Product name is required');
+        return;
+      }
+      if (!selectedProduct.description) {
+        Alert.alert('Error', 'Description is required');
+        return;
       }
 
-      setIsAdding(false);
-      setIsEditing(false);
+      // Validate manufacturing date
+      if (!date.day || !date.month || !date.year) {
+        Alert.alert('Error', 'Manufacturing date is required');
+        return;
+      }
+      
+      // Validate valid until date
+      if (!validUntilDate.day || !validUntilDate.month || !validUntilDate.year) {
+        Alert.alert('Error', 'Valid until date is required');
+        return;
+      }
+
+      // Format dates
+      const formattedManufacturingDate = `${date.day}-${date.month}-${date.year}`;
+      const formattedValidUntilDate = `${validUntilDate.day}-${validUntilDate.month}-${validUntilDate.year}`;
+
+      // First handle pending image deletions from Backblaze
+      if (pendingDeletions.length > 0) {
+        console.log('[DELETE] Processing pending image deletions:', pendingDeletions);
+        
+        for (const deletion of pendingDeletions) {
+          try {
+            // Try multiple API URLs for image deletion
+            const deleteUrls = [
+              `http://192.168.1.102:8082/api/products/delete-image`,
+              `http://localhost:8082/api/products/delete-image`,
+              `http://10.0.2.2:8082/api/products/delete-image`
+            ];
+
+            let deleteResponse = null;
+            let deleteError = null;
+
+            for (const deleteUrl of deleteUrls) {
+              try {
+                console.log(`[DELETE] Attempting to delete image from Backblaze via: ${deleteUrl}`);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+                deleteResponse = await fetch(deleteUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ 
+                    productId: selectedProduct.id,
+                    imageUrl: deletion.url
+                  }),
+                  signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (deleteResponse.ok) {
+                  console.log(`[DELETE] Successfully deleted image from Backblaze via: ${deleteUrl}`);
+                  break;
+                } else {
+                  const errorData = await deleteResponse.json();
+                  console.error(`[DELETE] Server error from ${deleteUrl}:`, errorData);
+                  deleteError = new Error(errorData.message || 'Failed to delete image');
+                }
+              } catch (err) {
+                console.error(`[DELETE] Failed to delete image via ${deleteUrl}:`, err);
+                deleteError = err;
+                // Continue to next URL if this one fails
+              }
+            }
+
+            if (!deleteResponse || !deleteResponse.ok) {
+              throw deleteError || new Error('Failed to delete image from all URLs');
+            }
+          } catch (error) {
+            console.error('[DELETE] Error deleting image:', error);
+            Alert.alert('Error', 'Failed to delete one or more images. Please try again.');
+            return;
+          }
+        }
+      }
+
+      // Now proceed with saving product data
+      const updatedProduct: Product = {
+        ...selectedProduct,
+        manufacturingDate: formattedManufacturingDate,
+        discount: {
+          percentage: 0,
+          validUntil: formattedValidUntilDate
+        }
+      };
+
+      // If there's an existing discount percentage, use it
+      if (selectedProduct.discount?.percentage) {
+        updatedProduct.discount.percentage = selectedProduct.discount.percentage;
+      }
+
+      // Create FormData object
+      const formData = new FormData();
+      
+      // Add product data
+      formData.append('name', updatedProduct.name);
+      formData.append('description', updatedProduct.description || '');
+      formData.append('price', updatedProduct.price.toString());
+      formData.append('manufacturer', updatedProduct.manufacturer || '');
+      formData.append('category', updatedProduct.category);
+      formData.append('stock', updatedProduct.stock.toString());
+      formData.append('manufacturingDate', updatedProduct.manufacturingDate);
+      formData.append('prescriptionRequired', updatedProduct.prescriptionRequired.toString());
+      
+      // Fix ingredients serialization
+      const cleanIngredients = updatedProduct.ingredients?.filter(i => i && i.trim() !== '') || [];
+      formData.append('ingredients', JSON.stringify(cleanIngredients));
+      
+      if (updatedProduct.dosage) {
+        formData.append('dosage', updatedProduct.dosage);
+      }
+      if (updatedProduct.sideEffects) {
+        formData.append('sideEffects', updatedProduct.sideEffects);
+      }
+      if (updatedProduct.storageInstructions) {
+        formData.append('storageInstructions', updatedProduct.storageInstructions);
+      }
+      
+      // Add discount data
+      formData.append('discount', JSON.stringify(updatedProduct.discount));
+      
+      // Process images - combine existing and new images
+      let existingImages = [...(selectedProduct.images || [])];
+      
+      // Remove deleted images from existingImages
+      if (pendingDeletions.length > 0) {
+        existingImages = existingImages.filter(url => 
+          !pendingDeletions.some(deletion => deletion.url === url)
+        );
+      }
+      
+      // Send existing images in the images field
+      formData.append('images', JSON.stringify(existingImages));
+      
+      // Add new images
+      if (selectedProduct.newImages && selectedProduct.newImages.length > 0) {
+        console.log('[IMAGE] Processing new images for upload');
+        for (let i = 0; i < selectedProduct.newImages.length; i++) {
+          const image = selectedProduct.newImages[i];
+          try {
+            console.log(`[IMAGE] Processing image ${i + 1}/${selectedProduct.newImages.length}`);
+            
+            // Fetch the image URI
+            const response = await fetch(image.uri);
+            const blob = await response.blob();
+            
+            // Append the image to form data with proper file name and type
+            formData.append('images', {
+              uri: image.uri,
+              type: 'image/jpeg',
+              name: `image_${Date.now()}_${i}.jpg`
+            } as any);
+            
+            console.log(`[IMAGE] Successfully appended image ${i + 1} to form data`);
+          } catch (error) {
+            console.error(`[IMAGE] Error processing image ${i + 1}:`, error);
+            throw new Error(`Failed to process image ${i + 1}`);
+          }
+        }
+      }
+
+      // Try multiple API URLs for saving product
+      const apiUrls = [
+        'http://192.168.1.102:8082/api/products',
+        'http://localhost:8082/api/products',
+        'http://10.0.2.2:8082/api/products'
+      ];
+      
+      let response = null;
+      let error = null;
+      
+      for (const apiUrl of apiUrls) {
+        try {
+          console.log(`[API] Attempting to save product to: ${apiUrl}`);
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
+          
+          const method = selectedProduct.id ? 'PUT' : 'POST';
+          const url = selectedProduct.id ? `${apiUrl}/${selectedProduct.id}` : apiUrl;
+          
+          console.log(`[API] Using ${method} request to ${url}`);
+          console.log(`[API] FormData contents:`, {
+            name: updatedProduct.name,
+            manufacturingDate: updatedProduct.manufacturingDate,
+            existingImages,
+            newImagesCount: selectedProduct.newImages?.length || 0,
+            pendingDeletions: pendingDeletions
+          });
+          
+          response = await fetch(url, {
+            method,
+            body: formData,
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            console.log(`[API] Successfully saved product to: ${apiUrl}`);
+            break;
+          } else {
+            const errorData = await response.json();
+            console.error(`[API] Server error from ${apiUrl}:`, errorData);
+            error = new Error(errorData.message || 'Failed to save product');
+          }
+        } catch (err) {
+          console.error(`[API] Failed to save product to ${apiUrl}:`, err);
+          error = err;
+        }
+      }
+      
+      if (!response || !response.ok) {
+        throw error || new Error('Failed to save product to all URLs');
+      }
+      
+      const savedProduct = await response.json();
+      console.log('[API] Product saved successfully:', savedProduct);
+      
+      // Clear pending deletions after successful save
+      setPendingDeletions([]);
+      
+      // Close edit mode and refresh product list
       setShowDetails(false);
-    } catch (error) {
-      console.error('Error saving product:', error);
-      // Show error message to user
-      alert('Failed to save product. Please try again.');
+      setSelectedProduct(null);
+      fetchProducts(); // Refresh the product list to get the latest data
+      
+      Alert.alert('Success', 'Product saved successfully');
+    } catch (error: any) {
+      console.error('[API] Error saving product:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to save product. Please try again.'
+      );
     }
   };
 
-  const handleDelete = (productId: string) => {
-    // Implement delete logic
-    console.log('Deleting product:', productId);
-    setShowDetails(false);
+  const handleDelete = async (productId: string) => {
+    try {
+      // Show confirmation dialog
+      Alert.alert(
+        'Delete Product',
+        'Are you sure you want to delete this product? This action cannot be undone.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                setIsDeleting(productId);
+                const response = await fetch(`${API_URL}/products/${productId}`, {
+                  method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                  throw new Error('Failed to delete product');
+                }
+
+                // Remove the product from the local state
+                setProducts(products.filter(product => product.id !== productId));
+                setFilteredProducts(filteredProducts.filter(product => product.id !== productId));
+                
+                Alert.alert('Success', 'Product deleted successfully');
+              } catch (error) {
+                console.error('Error deleting product:', error);
+                Alert.alert('Error', 'Failed to delete product. Please try again.');
+              } finally {
+                setIsDeleting(null);
+              }
+            },
+          },
+        ],
+        { cancelable: true }
+      );
+    } catch (error) {
+      console.error('Error showing confirmation dialog:', error);
+    }
   };
 
   const getCategoryIcon = (category: string) => {
@@ -306,34 +838,111 @@ export default function Products() {
   };
 
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      alert('Sorry, we need camera roll permissions to upload images!');
-      return;
-    }
-
+    try {
+      console.log('[IMAGE] Opening image picker');
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      aspect: [1, 1],
+        aspect: [4, 3],
       quality: 1,
     });
 
-    if (!result.canceled && selectedProduct) {
-      setSelectedProduct({
-        ...selectedProduct,
-        images: [...selectedProduct.images, result.assets[0].uri]
-      });
+      if (!result.canceled) {
+        const newImage = result.assets[0];
+        console.log(`[IMAGE] Image selected: ${newImage.uri}`);
+        setSelectedProduct(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            newImages: [...(prev.newImages || []), newImage]
+          };
+        });
+        console.log(`[IMAGE] Added image to newImages array. Total new images: ${(selectedProduct?.newImages?.length || 0) + 1}`);
+      } else {
+        console.log('[IMAGE] Image selection cancelled by user');
+      }
+    } catch (error) {
+      console.error('[IMAGE] Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
 
-  const removeImage = (index: number) => {
+  const removeLocalImage = (index: number) => {
     if (selectedProduct) {
       setSelectedProduct({
         ...selectedProduct,
         images: selectedProduct.images.filter((_, i) => i !== index)
       });
+    }
+  };
+
+  const handleDeleteImage = async (imageUrl: string, index: number) => {
+    try {
+      if (!selectedProduct) return;
+
+      // If it's a new image (not yet uploaded), just remove it from the newImages array
+      if (selectedProduct.newImages && index < selectedProduct.newImages.length) {
+        console.log(`[IMAGE] Deleting new image at index ${index} (not yet uploaded to Backblaze)`);
+        setSelectedProduct(prev => {
+          if (!prev) return prev;
+          const newImages = [...(prev.newImages || [])];
+          newImages.splice(index, 1);
+          return {
+            ...prev,
+            newImages
+          };
+        });
+        return;
+      }
+
+      // For existing images (already uploaded to Backblaze), show confirmation
+      const imageIndex = index - (selectedProduct.newImages?.length || 0);
+      if (imageIndex >= 0 && selectedProduct.images) {
+        console.log(`[IMAGE] Attempting to delete existing image at index ${imageIndex} (URL: ${imageUrl})`);
+        // Show confirmation dialog for deleting uploaded images
+        Alert.alert(
+          'Delete Image',
+          'Are you sure you want to delete this image? This action cannot be undone.',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => {
+                console.log(`[IMAGE] Deletion cancelled for image at index ${imageIndex}`);
+              }
+            },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: () => {
+                console.log(`[IMAGE] User confirmed deletion of image at index ${imageIndex}`);
+                const updatedImages = [...selectedProduct.images];
+                updatedImages.splice(imageIndex, 1);
+                
+                setSelectedProduct(prev => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    images: updatedImages
+                  };
+                });
+
+                // Add to pending deletions
+                setPendingDeletions(prev => {
+                  console.log(`[IMAGE] Added image to pending deletions: ${imageUrl}`);
+                  return [
+                    ...prev,
+                    { url: imageUrl, timestamp: Date.now() }
+                  ];
+                });
+              }
+            }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('[IMAGE] Error deleting image:', error);
+      Alert.alert('Error', 'Failed to delete image. Please try again.');
     }
   };
 
@@ -354,19 +963,36 @@ export default function Products() {
       if (value === '') {
         setDate(prev => ({ ...prev, day: '' }));
       } else if (numValue >= 1 && numValue <= 31) {
-        setDate(prev => ({ ...prev, day: value }));
+        setDate(prev => ({ ...prev, day: value.padStart(2, '0') }));
       }
     } else if (type === 'month') {
       if (value === '') {
         setDate(prev => ({ ...prev, month: '' }));
       } else if (numValue >= 1 && numValue <= 12) {
-        setDate(prev => ({ ...prev, month: value }));
+        setDate(prev => ({ ...prev, month: value.padStart(2, '0') }));
       }
     } else if (type === 'year') {
       if (value === '') {
         setDate(prev => ({ ...prev, year: '' }));
-      } else if (value.length <= 4) { // Allow typing up to 4 digits
+      } else if (value.length <= 4) {
         setDate(prev => ({ ...prev, year: value }));
+      }
+    }
+
+    // Update manufacturing date in selectedProduct whenever date changes
+    if (selectedProduct) {
+      const updatedDate = {
+        day: type === 'day' ? value.padStart(2, '0') : date.day,
+        month: type === 'month' ? value.padStart(2, '0') : date.month,
+        year: type === 'year' ? value : date.year
+      };
+
+      if (updatedDate.day && updatedDate.month && updatedDate.year) {
+        const formattedDate = `${updatedDate.day}-${updatedDate.month}-${updatedDate.year}`;
+        setSelectedProduct({
+          ...selectedProduct,
+          manufacturingDate: formattedDate
+        });
       }
     }
   };
@@ -378,19 +1004,39 @@ export default function Products() {
       if (value === '') {
         setValidUntilDate(prev => ({ ...prev, day: '' }));
       } else if (numValue >= 1 && numValue <= 31) {
-        setValidUntilDate(prev => ({ ...prev, day: value }));
+        setValidUntilDate(prev => ({ ...prev, day: value.padStart(2, '0') }));
       }
     } else if (type === 'month') {
       if (value === '') {
         setValidUntilDate(prev => ({ ...prev, month: '' }));
       } else if (numValue >= 1 && numValue <= 12) {
-        setValidUntilDate(prev => ({ ...prev, month: value }));
+        setValidUntilDate(prev => ({ ...prev, month: value.padStart(2, '0') }));
       }
     } else if (type === 'year') {
       if (value === '') {
         setValidUntilDate(prev => ({ ...prev, year: '' }));
-      } else if (value.length <= 4) { // Allow typing up to 4 digits
+      } else if (value.length <= 4) {
         setValidUntilDate(prev => ({ ...prev, year: value }));
+      }
+    }
+
+    // Update valid until date in selectedProduct whenever date changes
+    if (selectedProduct) {
+      const updatedDate = {
+        day: type === 'day' ? value.padStart(2, '0') : validUntilDate.day,
+        month: type === 'month' ? value.padStart(2, '0') : validUntilDate.month,
+        year: type === 'year' ? value : validUntilDate.year
+      };
+
+      if (updatedDate.day && updatedDate.month && updatedDate.year) {
+        const formattedDate = `${updatedDate.day}-${updatedDate.month}-${updatedDate.year}`;
+        setSelectedProduct({
+          ...selectedProduct,
+          discount: {
+            ...selectedProduct.discount,
+            validUntil: formattedDate
+          }
+        });
       }
     }
   };
@@ -403,7 +1049,7 @@ export default function Products() {
       if (field === 'price') {
         setSelectedProduct({
           ...selectedProduct,
-          price: `₹${value}`
+          price: numValue
         });
       } else if (field === 'stock') {
         setSelectedProduct({
@@ -414,8 +1060,8 @@ export default function Products() {
         setSelectedProduct({
           ...selectedProduct,
           discount: {
-            ...selectedProduct.discount,
-            percentage: numValue
+            percentage: numValue,
+            validUntil: selectedProduct.discount?.validUntil || new Date().toISOString()
           }
         });
       }
@@ -452,7 +1098,7 @@ export default function Products() {
             setSelectedProduct({
               ...selectedProduct,
               discount: {
-                ...selectedProduct.discount,
+                percentage: selectedProduct.discount?.percentage || 0,
                 validUntil: formattedDate
               }
             });
@@ -462,10 +1108,9 @@ export default function Products() {
     }
   };
 
-  const formatDisplayDate = (date: string) => {
+  const formatDisplayDate = (date: string | undefined) => {
     if (!date) return '';
-    const [year, month, day] = date.split('-');
-    return `${day}-${month}-${year}`;
+    return date; // Already in dd-mm-yyyy format from backend
   };
 
   // Date Input Component
@@ -480,13 +1125,19 @@ export default function Products() {
 
     const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0'));
     const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
-    const years = Array.from({ length: 10 }, (_, i) => (2024 + i).toString());
+    const currentYear = new Date().getFullYear();
+    const years = Array.from({ length: 10 }, (_, i) => (currentYear + i).toString());
 
     const closeAllDropdowns = () => {
       setShowDayDropdown(false);
       setShowMonthDropdown(false);
       setShowYearDropdown(false);
     };
+
+    // Ensure the year is displayed as a 4-digit number
+    const displayYear = date.year ? 
+      date.year.length === 4 ? date.year : new Date().getFullYear().toString() 
+      : 'YYYY';
 
     return (
       <View style={{ marginBottom: 16 }}>
@@ -653,7 +1304,7 @@ export default function Products() {
               }}
             >
               <Text style={{ fontSize: 16, textAlign: 'center', color: date.year ? '#000' : '#999' }}>
-                {date.year || 'YYYY'}
+                {displayYear}
               </Text>
               <MaterialCommunityIcons name="chevron-down" size={20} color="#666" />
             </TouchableOpacity>
@@ -702,6 +1353,102 @@ export default function Products() {
     );
   };
 
+  // Update image caching
+  const [imageCache, setImageCache] = useState<{[key: string]: string}>({});
+
+  const cacheImage = async (imageUrl: string) => {
+    if (imageCache[imageUrl]) return imageCache[imageUrl];
+    
+    try {
+      // For local files (file://), use directly
+      if (imageUrl.startsWith('file://')) {
+        setImageCache(prev => ({...prev, [imageUrl]: imageUrl}));
+        return imageUrl;
+      }
+      
+      // For remote URLs, download and cache
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      
+      // Create a local URI for the blob
+      const localUri = Platform.OS === 'android' 
+        ? `data:image/jpeg;base64,${await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result?.toString().split(',')[1]);
+            reader.readAsDataURL(blob);
+          })}`
+        : URL.createObjectURL(blob);
+      
+      setImageCache(prev => ({...prev, [imageUrl]: localUri}));
+      return localUri;
+    } catch (error) {
+      console.error('Error caching image:', error);
+      return imageUrl; // Return original URL if caching fails
+    }
+  };
+
+  // Update ProductImage component
+  const ProductImage = ({ imageUrl, category }: { imageUrl: string; category: string }) => {
+    const [hasError, setHasError] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+
+    // For local files, display directly
+    if (imageUrl.startsWith('file://')) {
+      return (
+        <Image
+          source={{ uri: imageUrl }}
+          style={{ 
+            width: '100%', 
+            height: '100%', 
+            borderRadius: 8 
+          }}
+          resizeMode="cover"
+          onError={() => setHasError(true)}
+        />
+      );
+    }
+
+    // For B2 URLs, use as is since they are already authorized
+    const iconSize = 24;
+
+    if (hasError) {
+      return (
+        <View style={{ 
+          width: '100%', 
+          height: '100%', 
+          borderRadius: 8,
+          backgroundColor: '#F8F9FA',
+          justifyContent: 'center',
+          alignItems: 'center'
+        }}>
+          <MaterialCommunityIcons 
+            name={getCategoryIcon(category)} 
+            size={iconSize}
+            color="#6C63FF" 
+          />
+        </View>
+      );
+    }
+
+    return (
+      <Image
+        source={{ uri: imageUrl }}
+        style={{ 
+          width: '100%', 
+          height: '100%', 
+          borderRadius: 8 
+        }}
+        resizeMode="cover"
+        onLoadStart={() => setIsLoading(true)}
+        onLoadEnd={() => setIsLoading(false)}
+        onError={(error) => {
+          console.error('Error loading image:', imageUrl, error);
+          setHasError(true);
+        }}
+      />
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: '#F8F9FA' }}>
       {/* Header */}
@@ -722,28 +1469,34 @@ export default function Products() {
         <Text style={{ color: '#FFFFFF99', fontSize: 16, fontWeight: '500' }}>Manage your inventory</Text>
         
         {/* Search Bar */}
-        <View style={{ 
+        <View style={{
+          marginHorizontal: 16,
+          marginTop: 16,
           backgroundColor: '#FFFFFF20',
-          borderRadius: 12,
+          borderRadius: 8,
           flexDirection: 'row',
           alignItems: 'center',
-          paddingHorizontal: 16,
-          height: 40,
-          marginTop: 12
+          paddingHorizontal: 12
         }}>
-          <MaterialCommunityIcons name="magnify" size={20} color="white" />
+          <MaterialCommunityIcons name="magnify" size={24} color="white" />
           <TextInput
             placeholder="Search products..."
             placeholderTextColor="#FFFFFF80"
             value={searchQuery}
-            onChangeText={setSearchQuery}
-            style={{ 
+            onChangeText={handleSearch}
+            style={{
               flex: 1,
-              marginLeft: 12,
-              fontSize: 14,
-              color: 'white'
+              color: 'white',
+              paddingVertical: 8,
+              paddingHorizontal: 8,
+              fontSize: 16
             }}
           />
+          {searchQuery ? (
+            <TouchableOpacity onPress={handleSearchClear}>
+              <MaterialCommunityIcons name="close" size={24} color="white" />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -801,181 +1554,185 @@ export default function Products() {
       </View>
 
       {/* Products List */}
-      <ScrollView 
-        style={{ flex: 1 }} 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 100 }}
-      >
-        {filteredProducts.map((product) => (
-          <View
-            key={product.id}
-            style={{
-              backgroundColor: 'white',
-              borderRadius: 16,
-              padding: 16,
-              elevation: 2,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-            }}
-          >
-            <View style={{ flexDirection: 'row', gap: 16 }}>
-              {/* Product Image/Icon */}
-              <View style={{
-                width: 60,
-                height: 60,
-                borderRadius: 12,
-                backgroundColor: '#6C63FF20',
-                justifyContent: 'center',
-                alignItems: 'center',
-                flexShrink: 0
-              }}>
-                {product.images.length > 0 ? (
-                  <Image 
-                    source={{ uri: product.images[0] }}
-                    style={{ width: 60, height: 60, borderRadius: 12 }}
-                    onError={() => (
-                      <MaterialCommunityIcons 
-                        name={getCategoryIcon(product.category)} 
-                        size={32} 
+      <View style={{ flex: 1 }}>
+        <ScrollView 
+          style={{ flex: 1 }} 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 100 }}
+        >
+          {filteredProducts.map((product) => (
+            <View
+              key={product.id}
+              style={{
+                backgroundColor: 'white',
+                borderRadius: 16,
+                padding: 16,
+                elevation: 2,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+              }}
+            >
+              <View style={{ flexDirection: 'row', gap: 16 }}>
+                {/* Product Image/Icon */}
+                <View style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 8,
+                  backgroundColor: '#6C63FF20',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  flexShrink: 0,
+                  overflow: 'hidden'
+                }}>
+                        <MaterialCommunityIcons 
+                          name={getCategoryIcon(product.category)} 
+                  size={24}
                         color="#6C63FF" 
                       />
-                    )}
-                  />
-                ) : (
-                  <MaterialCommunityIcons 
-                    name={getCategoryIcon(product.category)} 
-                    size={32} 
-                    color="#6C63FF" 
-                  />
-                )}
-              </View>
-
-              {/* Product Info */}
-              <View style={{ flex: 1, justifyContent: 'space-between' }}>
-                <View>
-                  <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 4 }} numberOfLines={1}>
-                    {product.name}
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#666' }} numberOfLines={2}>
-                    {product.description}
-                  </Text>
                 </View>
 
-                <View style={{ 
-                  flexDirection: 'row', 
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginTop: 8
-                }}>
+                {/* Product Info */}
+                <View style={{ flex: 1, justifyContent: 'space-between' }}>
                   <View>
-                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#6C63FF' }}>
-                      {product.price}
+                    <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 4 }} numberOfLines={1}>
+                      {product.name}
                     </Text>
-                    <View style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: '#FFC10720',
-                      paddingHorizontal: 8,
-                      paddingVertical: 2,
-                      borderRadius: 4,
-                      marginTop: 4
-                    }}>
-                      <Text style={{ fontSize: 12, color: '#FFC107', fontWeight: '500' }}>
-                        Stock: {product.stock}
-                      </Text>
-                    </View>
+                    <Text style={{ fontSize: 14, color: '#666' }} numberOfLines={2}>
+                      {product.description}
+                    </Text>
                   </View>
 
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <View style={{
-                      backgroundColor: product.stock > 0 ? '#4CAF5020' : '#FF525220',
-                      paddingVertical: 4,
-                      paddingHorizontal: 8,
-                      borderRadius: 6,
-                    }}>
-                      <Text style={{
-                        fontSize: 12,
-                        color: product.stock > 0 ? '#4CAF50' : '#FF5252',
-                        fontWeight: '500'
-                      }}>
-                        {product.stock > 0 ? 'In Stock' : 'Out of Stock'}
+                  <View style={{ 
+                    flexDirection: 'row', 
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginTop: 8
+                  }}>
+                    <View>
+                      <Text style={{ fontSize: 16, fontWeight: '600', color: '#6C63FF' }}>
+                        ₹{product.price}
                       </Text>
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: '#FFC10720',
+                        paddingHorizontal: 8,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                        marginTop: 4
+                      }}>
+                        <Text style={{ fontSize: 12, color: '#FFC107', fontWeight: '500' }}>
+                          Stock: {product.stock}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <View style={{
+                        backgroundColor: product.stock > 0 ? '#4CAF5020' : '#FF525220',
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: 6,
+                      }}>
+                        <Text style={{
+                          fontSize: 12,
+                          color: product.stock > 0 ? '#4CAF50' : '#FF5252',
+                          fontWeight: '500'
+                        }}>
+                          {product.stock > 0 ? 'In Stock' : 'Out of Stock'}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </View>
               </View>
-            </View>
 
-            {/* Action Buttons */}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              <TouchableOpacity
-                onPress={() => handleEdit(product)}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#6C63FF20',
-                  padding: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 8
-                }}
-              >
-                <MaterialCommunityIcons name="pencil" size={20} color="#6C63FF" />
-                <Text style={{ color: '#6C63FF', fontSize: 14, fontWeight: '500' }}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleDelete(product.id)}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#FF525220',
-                  padding: 12,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  gap: 8
-                }}
-              >
-                <MaterialCommunityIcons name="delete" size={20} color="#FF5252" />
-                <Text style={{ color: '#FF5252', fontSize: 14, fontWeight: '500' }}>Remove</Text>
-              </TouchableOpacity>
+              {/* Action Buttons */}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                <TouchableOpacity
+                  onPress={() => handleEdit(product)}
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#6C63FF20',
+                    padding: 12,
+                    borderRadius: 8,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 8
+                  }}
+                >
+                  <MaterialCommunityIcons name="pencil" size={20} color="#6C63FF" />
+                  <Text style={{ color: '#6C63FF', fontSize: 14, fontWeight: '500' }}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => handleDelete(product.id)}
+                  style={[styles.deleteButton, isDeleting === product.id && styles.disabledButton]}
+                  disabled={isDeleting === product.id}
+                >
+                  {isDeleting === product.id ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <MaterialCommunityIcons name="delete" size={24} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        ))}
+          ))}
+        </ScrollView>
 
-        {/* Add Product Button */}
-        <TouchableOpacity
-          onPress={handleAddNew}
-          style={{
-            backgroundColor: '#4CAF50',
-            borderRadius: 16,
-            padding: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            elevation: 2,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 4,
-            marginTop: 8
-          }}
-        >
-          <MaterialCommunityIcons name="plus-circle" size={24} color="white" />
-          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Add New Product</Text>
-        </TouchableOpacity>
-      </ScrollView>
+        {/* Fixed Add Product Button */}
+        <View style={{
+          position: 'absolute',
+          bottom: 16,
+          left: 16,
+          right: 16,
+          elevation: 4,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+        }}>
+          <TouchableOpacity
+            onPress={handleAddNew}
+            style={{
+              backgroundColor: '#4CAF50',
+              borderRadius: 16,
+              padding: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            <MaterialCommunityIcons name="plus-circle" size={24} color="white" />
+            <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Add New Product</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {/* Product Details/Edit Modal */}
       <Modal
         visible={showDetails}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setShowDetails(false)}
+        onRequestClose={() => {
+          // Restore images if there are pending deletions and user is closing
+          if (pendingDeletions.length > 0 && selectedProduct) {
+            const restoredImages = [...selectedProduct.images];
+            pendingDeletions.forEach(deletion => {
+              restoredImages.push(deletion.url);
+            });
+            setSelectedProduct({
+              ...selectedProduct,
+              images: restoredImages
+            });
+          }
+          setPendingDeletions([]);
+          setShowDetails(false);
+        }}
       >
         <View style={{ 
           flex: 1, 
@@ -986,20 +1743,119 @@ export default function Products() {
             backgroundColor: 'white',
             borderTopLeftRadius: 24,
             borderTopRightRadius: 24,
-            padding: 24,
-            maxHeight: '90%'
+            height: '90%'
           }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            {/* Header with Title and Action Buttons */}
+            <View style={{
+              backgroundColor: 'white',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              elevation: 4,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 4,
+            }}>
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                padding: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F0F0F0'
+              }}>
               <Text style={{ fontSize: 20, fontWeight: '600' }}>
                 {isAdding ? 'Add Product' : isEditing ? 'Edit Product' : 'Product Details'}
               </Text>
-              <TouchableOpacity onPress={() => setShowDetails(false)}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    // Restore images if there are pending deletions
+                    if (pendingDeletions.length > 0 && selectedProduct) {
+                      const restoredImages = [...selectedProduct.images];
+                      pendingDeletions.forEach(deletion => {
+                        restoredImages.push(deletion.url);
+                      });
+                      setSelectedProduct({
+                        ...selectedProduct,
+                        images: restoredImages
+                      });
+                    }
+                    setPendingDeletions([]);
+                    setShowDetails(false);
+                  }}
+                >
                 <MaterialCommunityIcons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
+              {isEditing && (
+                <View style={{ 
+                  flexDirection: 'row', 
+                  padding: 16, 
+                  gap: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#F0F0F0'
+                }}>
+                  <TouchableOpacity
+                    onPress={handleSave}
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#4CAF50',
+                      padding: 12,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 8
+                    }}
+                  >
+                    <MaterialCommunityIcons name="check" size={20} color="white" />
+                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '500' }}>
+                      {isAdding ? 'Add Product' : 'Save Changes'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      // Restore images if there are pending deletions
+                      if (pendingDeletions.length > 0 && selectedProduct) {
+                        const restoredImages = [...selectedProduct.images];
+                        pendingDeletions.forEach(deletion => {
+                          restoredImages.push(deletion.url);
+                        });
+                        setSelectedProduct({
+                          ...selectedProduct,
+                          images: restoredImages
+                        });
+                      }
+                      setPendingDeletions([]);
+                      setIsEditing(false);
+                      setShowDetails(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#FF5252',
+                      padding: 12,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 8
+                    }}
+                  >
+                    <MaterialCommunityIcons name="close" size={20} color="white" />
+                    <Text style={{ color: 'white', fontSize: 14, fontWeight: '500' }}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Form Content */}
             {selectedProduct && (
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <ScrollView 
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: 16 }}
+                showsVerticalScrollIndicator={false}
+              >
                 {/* Product Images */}
                 <View style={{ 
                   backgroundColor: '#F8F9FA',
@@ -1007,38 +1863,72 @@ export default function Products() {
                   padding: 16,
                   marginBottom: 16
                 }}>
-                  {selectedProduct.images.length > 0 ? (
                     <ScrollView 
                       horizontal 
                       showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ gap: 8 }}
+                    contentContainerStyle={{ gap: 12 }}
                     >
-                      {selectedProduct.images.map((image, index) => (
-                        <View key={index} style={{ position: 'relative' }}>
+                    {/* Show existing images */}
+                    {selectedProduct.images && selectedProduct.images.length > 0 && selectedProduct.images.map((image, index) => (
+                      <View key={`existing-${index}`} style={{ position: 'relative' }}>
                           <View style={{
-                            width: 100,
-                            height: 100,
+                          width: 80,
+                          height: 80,
+                          borderRadius: 8,
+                          backgroundColor: '#6C63FF20',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          overflow: 'hidden'
+                        }}>
+                          <ProductImage imageUrl={image} category={selectedProduct.category} />
+                        </View>
+                        {isEditing && (
+                          <TouchableOpacity
+                            onPress={() => handleDeleteImage(image, index)}
+                            style={{
+                              position: 'absolute',
+                              top: -8,
+                              right: -8,
+                              backgroundColor: '#FF5252',
+                              width: 24,
+                              height: 24,
                             borderRadius: 12,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              elevation: 2,
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.25,
+                              shadowRadius: 4,
+                            }}
+                          >
+                            <MaterialCommunityIcons name="close" size={16} color="white" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+
+                    {/* Show new images */}
+                    {selectedProduct.newImages && selectedProduct.newImages.length > 0 && selectedProduct.newImages.map((image, index) => (
+                      <View key={`new-${index}`} style={{ position: 'relative' }}>
+                        <View style={{
+                          width: 80,
+                          height: 80,
+                          borderRadius: 8,
                             backgroundColor: '#6C63FF20',
                             justifyContent: 'center',
                             alignItems: 'center',
                             overflow: 'hidden'
                           }}>
                             <Image 
-                              source={{ uri: image }} 
-                              style={{ width: 100, height: 100, borderRadius: 12 }}
-                              onError={() => (
-                                <MaterialCommunityIcons 
-                                  name={getCategoryIcon(selectedProduct.category)} 
-                                  size={32} 
-                                  color="#6C63FF" 
-                                />
-                              )}
+                            source={{ uri: image.uri }} 
+                            style={{ width: '100%', height: '100%' }}
+                            resizeMode="cover"
                             />
                           </View>
                           {isEditing && (
                             <TouchableOpacity
-                              onPress={() => removeImage(index)}
+                            onPress={() => handleDeleteImage(image.uri, index)}
                               style={{
                                 position: 'absolute',
                                 top: -8,
@@ -1048,7 +1938,12 @@ export default function Products() {
                                 height: 24,
                                 borderRadius: 12,
                                 justifyContent: 'center',
-                                alignItems: 'center'
+                              alignItems: 'center',
+                              elevation: 2,
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.25,
+                              shadowRadius: 4,
                               }}
                             >
                               <MaterialCommunityIcons name="close" size={16} color="white" />
@@ -1057,7 +1952,6 @@ export default function Products() {
                         </View>
                       ))}
                     </ScrollView>
-                  ) : null}
 
                   {isEditing && (
                     <TouchableOpacity
@@ -1067,12 +1961,12 @@ export default function Products() {
                         padding: 16,
                         borderRadius: 12,
                         alignItems: 'center',
-                        marginTop: selectedProduct.images.length > 0 ? 16 : 0
+                        marginTop: ((selectedProduct.images && selectedProduct.images.length > 0) || (selectedProduct.newImages && selectedProduct.newImages.length > 0)) ? 16 : 0
                       }}
                     >
-                      <MaterialCommunityIcons name="camera-plus" size={32} color="#6C63FF" />
+                      <MaterialCommunityIcons name="camera-plus" size={24} color="#6C63FF" />
                       <Text style={{ color: '#6C63FF', fontSize: 14, marginTop: 8 }}>
-                        {selectedProduct.images.length > 0 ? 'Add More Images' : 'Add Product Images'}
+                        {((selectedProduct.images && selectedProduct.images.length > 0) || (selectedProduct.newImages && selectedProduct.newImages.length > 0)) ? 'Add More Images' : 'Add Product Images'}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1080,11 +1974,15 @@ export default function Products() {
 
                 {/* Basic Info */}
                 <View style={{ marginBottom: 16 }}>
-                  <Text style={{ color: '#666', fontSize: 14 }}>Product Name</Text>
+                  <Text style={{ color: '#666', fontSize: 14 }}>
+                    Product Name <Text style={{ color: 'red' }}>*</Text>
+                  </Text>
                   {isEditing ? (
                     <TextInput
                       value={selectedProduct.name}
-                      onChangeText={(text) => setSelectedProduct({...selectedProduct, name: text})}
+                      onChangeText={(text) => {
+                        setSelectedProduct({...selectedProduct, name: text});
+                      }}
                       style={{
                         borderWidth: 1,
                         borderColor: '#E0E0E0',
@@ -1099,12 +1997,17 @@ export default function Products() {
                   )}
                 </View>
 
+                {/* Description */}
                 <View style={{ marginBottom: 16 }}>
-                  <Text style={{ color: '#666', fontSize: 14 }}>Description</Text>
+                  <Text style={{ color: '#666', fontSize: 14 }}>
+                    Description <Text style={{ color: 'red' }}>*</Text>
+                  </Text>
                   {isEditing ? (
                     <TextInput
                       value={selectedProduct.description}
-                      onChangeText={(text) => setSelectedProduct({...selectedProduct, description: text})}
+                      onChangeText={(text) => {
+                        setSelectedProduct({...selectedProduct, description: text});
+                      }}
                       multiline
                       style={{
                         borderWidth: 1,
@@ -1115,6 +2018,8 @@ export default function Products() {
                         marginTop: 4,
                         height: 100
                       }}
+                      placeholder="Enter product description"
+                      placeholderTextColor="#999"
                     />
                   ) : (
                     <Text style={{ fontSize: 14, marginTop: 4 }}>{selectedProduct.description}</Text>
@@ -1124,11 +2029,13 @@ export default function Products() {
                 {/* Price & Stock */}
                 <View style={{ flexDirection: 'row', gap: 16, marginBottom: 16 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#666', fontSize: 14 }}>Price</Text>
+                    <Text style={{ color: '#666', fontSize: 14 }}>
+                      Price <Text style={{ color: 'red' }}>*</Text>
+                    </Text>
                     {isEditing ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <TextInput
-                          value={selectedProduct.price.replace('₹', '')}
+                          value={selectedProduct.price.toString()}
                           onChangeText={(text) => handleNumberInput(text, 'price')}
                           keyboardType="numeric"
                           style={{
@@ -1143,13 +2050,17 @@ export default function Products() {
                         />
                         <View style={{ flexDirection: 'column', marginLeft: 8 }}>
                           <TouchableOpacity
-                            onPress={() => handleNumberInput((parseInt(selectedProduct.price.replace('₹', '')) + 1).toString(), 'price')}
+                            onPress={() => {
+                              handleNumberInput((parseInt(selectedProduct.price.toString() || '0') + 1).toString(), 'price');
+                            }}
                             style={{ padding: 4 }}
                           >
                             <MaterialCommunityIcons name="chevron-up" size={24} color="#666" />
                           </TouchableOpacity>
                           <TouchableOpacity
-                            onPress={() => handleNumberInput((parseInt(selectedProduct.price.replace('₹', '')) - 1).toString(), 'price')}
+                            onPress={() => {
+                              handleNumberInput((parseInt(selectedProduct.price.toString() || '0') - 1).toString(), 'price');
+                            }}
                             style={{ padding: 4 }}
                           >
                             <MaterialCommunityIcons name="chevron-down" size={24} color="#666" />
@@ -1157,11 +2068,13 @@ export default function Products() {
                         </View>
                       </View>
                     ) : (
-                      <Text style={{ fontSize: 16, fontWeight: '500', marginTop: 4 }}>{selectedProduct.price}</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '500', marginTop: 4 }}>₹{selectedProduct.price}</Text>
                     )}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: '#666', fontSize: 14 }}>Stock</Text>
+                    <Text style={{ color: '#666', fontSize: 14 }}>
+                      Stock <Text style={{ color: 'red' }}>*</Text>
+                    </Text>
                     {isEditing ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <TextInput
@@ -1178,15 +2091,19 @@ export default function Products() {
                             marginTop: 4
                           }}
                         />
-                        <View style={{ flexDirection: 'column', marginLeft: 8 }}></View>
+                        <View style={{ flexDirection: 'column', marginLeft: 8 }}>
                           <TouchableOpacity
-                            onPress={() => handleNumberInput((selectedProduct.stock + 1).toString(), 'stock')}
+                            onPress={() => {
+                              handleNumberInput((selectedProduct.stock + 1).toString(), 'stock');
+                            }}
                             style={{ padding: 4 }}
                           >
                             <MaterialCommunityIcons name="chevron-up" size={24} color="#666" />
                           </TouchableOpacity>
                           <TouchableOpacity
-                            onPress={() => handleNumberInput((selectedProduct.stock - 1).toString(), 'stock')}
+                            onPress={() => {
+                              handleNumberInput((selectedProduct.stock - 1).toString(), 'stock');
+                            }}
                             style={{ padding: 4 }}
                           >
                             <MaterialCommunityIcons name="chevron-down" size={24} color="#666" />
@@ -1201,7 +2118,9 @@ export default function Products() {
 
                 {/* Manufacturer & Manufacturing Date */}
                 <View style={{ marginBottom: 16 }}>
-                  <Text style={{ color: '#666', fontSize: 14, marginBottom: 8 }}>Manufacturer</Text>
+                  <Text style={{ color: '#666', fontSize: 14, marginBottom: 8 }}>
+                    Manufacturer <Text style={{ color: 'red' }}>*</Text>
+                  </Text>
                   {isEditing ? (
                     <View style={{ 
                       backgroundColor: '#F8F9FA',
@@ -1210,7 +2129,9 @@ export default function Products() {
                     }}>
                       <TextInput
                         value={selectedProduct.manufacturer}
-                        onChangeText={(text) => setSelectedProduct({...selectedProduct, manufacturer: text})}
+                        onChangeText={(text) => {
+                          setSelectedProduct({...selectedProduct, manufacturer: text});
+                        }}
                         style={{
                           backgroundColor: 'white',
                           borderWidth: 1,
@@ -1231,11 +2152,16 @@ export default function Products() {
 
                 {/* Manufacturing Date */}
                 {isEditing ? (
-                  <DateInput 
-                    label="Manufacturing Date"
-                    date={date}
-                    onDateChange={handleDateChange}
-                  />
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ color: '#666', fontSize: 14 }}>
+                      Manufacturing Date <Text style={{ color: 'red' }}>*</Text>
+                    </Text>
+                    <DateInput 
+                      label=""
+                      date={date}
+                      onDateChange={handleDateChange}
+                    />
+                  </View>
                 ) : (
                   <View style={{ marginBottom: 16 }}>
                     <Text style={{ color: '#666', fontSize: 14 }}>Manufacturing Date</Text>
@@ -1247,13 +2173,17 @@ export default function Products() {
 
                 {/* Category */}
                 <View style={{ marginBottom: 16 }}>
-                  <Text style={{ color: '#666', fontSize: 14 }}>Category</Text>
+                  <Text style={{ color: '#666', fontSize: 14 }}>
+                    Category <Text style={{ color: 'red' }}>*</Text>
+                  </Text>
                   {isEditing ? (
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                       {CATEGORIES.filter(cat => cat.label !== 'All').map((category) => (
                         <TouchableOpacity
                           key={category.label}
-                          onPress={() => setSelectedProduct({...selectedProduct, category: category.label})}
+                          onPress={() => {
+                            setSelectedProduct({...selectedProduct, category: category.label});
+                          }}
                           style={{
                             backgroundColor: selectedProduct.category === category.label ? '#6C63FF' : 'white',
                             borderWidth: 1,
@@ -1284,13 +2214,7 @@ export default function Products() {
                   ) : (
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
                       <MaterialCommunityIcons 
-                        name={
-                          selectedProduct.category === 'Tablets' ? 'pill' :
-                          selectedProduct.category === 'Syrups' ? 'bottle-tonic' :
-                          selectedProduct.category === 'Devices' ? 'medical-bag' :
-                          selectedProduct.category === 'Supplements' ? 'pill' :
-                          'shield-check'
-                        } 
+                        name={getCategoryIcon(selectedProduct.category)} 
                         size={16} 
                         color="#6C63FF" 
                         style={{ marginRight: 8 }}
@@ -1306,7 +2230,9 @@ export default function Products() {
                   {isEditing ? (
                     <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
                       <TouchableOpacity
-                        onPress={() => setSelectedProduct({...selectedProduct, prescriptionRequired: true})}
+                        onPress={() => {
+                          setSelectedProduct({...selectedProduct, prescriptionRequired: true});
+                        }}
                         style={{
                           flex: 1,
                           backgroundColor: selectedProduct.prescriptionRequired ? '#6C63FF' : 'white',
@@ -1326,7 +2252,9 @@ export default function Products() {
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={() => setSelectedProduct({...selectedProduct, prescriptionRequired: false})}
+                        onPress={() => {
+                          setSelectedProduct({...selectedProduct, prescriptionRequired: false});
+                        }}
                         style={{
                           flex: 1,
                           backgroundColor: !selectedProduct.prescriptionRequired ? '#6C63FF' : 'white',
@@ -1358,8 +2286,10 @@ export default function Products() {
                   <Text style={{ color: '#666', fontSize: 14 }}>Ingredients</Text>
                   {isEditing ? (
                     <TextInput
-                      value={selectedProduct.ingredients.join(', ')}
-                      onChangeText={(text) => setSelectedProduct({...selectedProduct, ingredients: text.split(',')})}
+                      value={selectedProduct.ingredients ? selectedProduct.ingredients.join(', ') : ''}
+                      onChangeText={(text) => {
+                        setSelectedProduct({...selectedProduct, ingredients: text ? text.split(',').map(i => i.trim()) : []});
+                      }}
                       multiline
                       style={{
                         borderWidth: 1,
@@ -1373,7 +2303,7 @@ export default function Products() {
                     />
                   ) : (
                     <Text style={{ fontSize: 14, marginTop: 4 }}>
-                      {selectedProduct.ingredients.join(', ')}
+                      {selectedProduct.ingredients?.join(', ')}
                     </Text>
                   )}
                 </View>
@@ -1384,7 +2314,9 @@ export default function Products() {
                   {isEditing ? (
                     <TextInput
                       value={selectedProduct.dosage}
-                      onChangeText={(text) => setSelectedProduct({...selectedProduct, dosage: text})}
+                      onChangeText={(text) => {
+                        setSelectedProduct({...selectedProduct, dosage: text});
+                      }}
                       style={{
                         borderWidth: 1,
                         borderColor: '#E0E0E0',
@@ -1405,7 +2337,9 @@ export default function Products() {
                   {isEditing ? (
                     <TextInput
                       value={selectedProduct.sideEffects}
-                      onChangeText={(text) => setSelectedProduct({...selectedProduct, sideEffects: text})}
+                      onChangeText={(text) => {
+                        setSelectedProduct({...selectedProduct, sideEffects: text});
+                      }}
                       multiline
                       style={{
                         borderWidth: 1,
@@ -1418,7 +2352,9 @@ export default function Products() {
                       }}
                     />
                   ) : (
-                    <Text style={{ fontSize: 14, marginTop: 4 }}>{selectedProduct.sideEffects || 'No side effects reported'}</Text>
+                    <Text style={{ fontSize: 14, marginTop: 4 }}>
+                      {selectedProduct.sideEffects || 'No side effects reported'}
+                    </Text>
                   )}
                 </View>
 
@@ -1428,7 +2364,9 @@ export default function Products() {
                   {isEditing ? (
                     <TextInput
                       value={selectedProduct.storageInstructions}
-                      onChangeText={(text) => setSelectedProduct({...selectedProduct, storageInstructions: text})}
+                      onChangeText={(text) => {
+                        setSelectedProduct({...selectedProduct, storageInstructions: text});
+                      }}
                       multiline
                       style={{
                         borderWidth: 1,
@@ -1441,17 +2379,23 @@ export default function Products() {
                       }}
                     />
                   ) : (
-                    <Text style={{ fontSize: 14, marginTop: 4 }}>{selectedProduct.storageInstructions || 'Store in a cool, dry place'}</Text>
+                    <Text style={{ fontSize: 14, marginTop: 4 }}>
+                      {selectedProduct.storageInstructions || 'Store in a cool, dry place'}
+                    </Text>
                   )}
                 </View>
 
-                {/* Discount */}
+                {/* Discount section */}
                 {isEditing && (
                   <View style={{ marginBottom: 16 }}>
-                    <Text style={{ color: '#666', fontSize: 14 }}>Discount</Text>
+                    <Text style={{ color: '#666', fontSize: 14 }}>
+                      Discount <Text style={{ color: 'red' }}>*</Text>
+                    </Text>
                     <View style={{ flexDirection: 'column', gap: 16, marginTop: 8 }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ color: '#666', fontSize: 12, marginBottom: 4 }}>Percentage</Text>
+                        <Text style={{ color: '#666', fontSize: 12, marginBottom: 4 }}>
+                          Percentage <Text style={{ color: 'red' }}>*</Text>
+                        </Text>
                         <View style={{ 
                           flexDirection: 'row', 
                           alignItems: 'center',
@@ -1460,7 +2404,7 @@ export default function Products() {
                           padding: 12
                         }}>
                           <TextInput
-                            value={selectedProduct.discount?.percentage?.toString() || ''}
+                            value={selectedProduct.discount?.percentage?.toString()}
                             onChangeText={(text) => handleNumberInput(text, 'percentage')}
                             keyboardType="numeric"
                             style={{
@@ -1478,7 +2422,9 @@ export default function Products() {
                           />
                           <View style={{ flexDirection: 'column', marginLeft: 12 }}>
                             <TouchableOpacity
-                              onPress={() => handleNumberInput(((selectedProduct.discount?.percentage || 0) + 1).toString(), 'percentage')}
+                              onPress={() => {
+                                handleNumberInput(((selectedProduct.discount?.percentage || 0) + 1).toString(), 'percentage');
+                              }}
                               style={{ 
                                 backgroundColor: 'white',
                                 padding: 8,
@@ -1490,7 +2436,9 @@ export default function Products() {
                               <MaterialCommunityIcons name="chevron-up" size={24} color="#666" />
                             </TouchableOpacity>
                             <TouchableOpacity
-                              onPress={() => handleNumberInput(((selectedProduct.discount?.percentage || 0) - 1).toString(), 'percentage')}
+                              onPress={() => {
+                                handleNumberInput(((selectedProduct.discount?.percentage || 0) - 1).toString(), 'percentage');
+                              }}
                               style={{ 
                                 backgroundColor: 'white',
                                 padding: 8,
@@ -1506,54 +2454,17 @@ export default function Products() {
                         </View>
                       </View>
                       
-                      <DateInput 
-                        label="Valid Until"
-                        date={validUntilDate}
-                        onDateChange={handleValidUntilDateChange}
-                      />
+                      <View>
+                        <Text style={{ color: '#666', fontSize: 12, marginBottom: 4 }}>
+                          Valid Until <Text style={{ color: 'red' }}>*</Text>
+                        </Text>
+                        <DateInput 
+                          label=""
+                          date={validUntilDate}
+                          onDateChange={handleValidUntilDateChange}
+                        />
+                      </View>
                     </View>
-                  </View>
-                )}
-
-                {isEditing && (
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <TouchableOpacity
-                      onPress={handleSave}
-                      style={{
-                        flex: 1,
-                        backgroundColor: '#4CAF50',
-                        padding: 12,
-                        borderRadius: 8,
-                        alignItems: 'center',
-                        flexDirection: 'row',
-                        justifyContent: 'center',
-                        gap: 8
-                      }}
-                    >
-                      <MaterialCommunityIcons name="check" size={20} color="white" />
-                      <Text style={{ color: 'white', fontSize: 14, fontWeight: '500' }}>
-                        {isAdding ? 'Add Product' : 'Save Changes'}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setIsEditing(false);
-                        setShowDetails(false);
-                      }}
-                      style={{
-                        flex: 1,
-                        backgroundColor: '#FF5252',
-                        padding: 12,
-                        borderRadius: 8,
-                        alignItems: 'center',
-                        flexDirection: 'row',
-                        justifyContent: 'center',
-                        gap: 8
-                      }}
-                    >
-                      <MaterialCommunityIcons name="close" size={20} color="white" />
-                      <Text style={{ color: 'white', fontSize: 14, fontWeight: '500' }}>Cancel</Text>
-                    </TouchableOpacity>
                   </View>
                 )}
               </ScrollView>
@@ -1564,3 +2475,19 @@ export default function Products() {
     </View>
   );
 } 
+
+const styles = StyleSheet.create({
+  deleteButton: {
+    backgroundColor: '#FF5252',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginLeft: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+});

@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, TouchableOpacity, Image, TextInput, Dimensions, ActivityIndicator } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
 
 interface Product {
@@ -99,9 +99,57 @@ export default function ProductsScreen() {
   const { id: categoryId } = useLocalSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'popular' | 'price' | 'rating'>('popular');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const products = PRODUCTS[categoryId as string] || [];
+  // Fetch products from API
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        setLoading(true);
+        const apiUrl = 'http://192.168.1.101:8082/api/products';
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch products');
+        }
+        
+        const data = await response.json();
+        console.log('Fetched products:', data);
+        
+        // Transform the data to match our Product interface
+        const transformedProducts = data.map((item: any) => ({
+          id: item._id,
+          name: item.name,
+          price: parseFloat(item.price.replace('₹', '')),
+          rating: item.rating || 0,
+          description: item.description,
+          manufacturer: item.manufacturer,
+          category: item.category,
+          inStock: item.stock > 0,
+          image: item.images && item.images.length > 0 ? item.images[0] : undefined,
+          discount: item.discount ? {
+            percentage: item.discount.percentage || 0,
+            validUntil: item.discount.validUntil ? new Date(item.discount.validUntil).toISOString().split('T')[0] : ''
+          } : undefined
+        }));
+        
+        setProducts(transformedProducts);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching products:', err);
+        setError('Failed to load products. Please check your connection.');
+        // Fallback to static products if API fails
+        setProducts(PRODUCTS[categoryId as string] || []);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchProducts();
+  }, [categoryId]);
+
   const screenWidth = Dimensions.get('window').width;
   const cardWidth = (screenWidth - 32) / 2;
 
