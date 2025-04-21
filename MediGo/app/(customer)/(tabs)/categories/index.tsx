@@ -1,6 +1,7 @@
-import { View, Text, ScrollView, TextInput, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, Dimensions, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useState, useEffect } from 'react';
 
 interface Category {
   id: string;
@@ -11,50 +12,81 @@ interface Category {
 }
 
 export default function Categories() {
-  const categories: Category[] = [
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([
     {
       id: '1',
       name: 'Nutritional Drinks',
       icon: 'cup',
       color: '#FFE0E0',
-      count: 45
+      count: 0
     },
     {
       id: '2',
       name: 'Ayurveda',
       icon: 'leaf',
       color: '#E0FFE0',
-      count: 32
+      count: 0
     },
     {
       id: '3',
       name: 'Vitamins',
       icon: 'pill',
       color: '#E0E0FF',
-      count: 28
+      count: 0
     },
     {
       id: '4',
       name: 'Healthcare',
       icon: 'heart-pulse',
       color: '#FFE0FF',
-      count: 56
+      count: 0
     },
     {
       id: '5',
       name: 'Personal Care',
       icon: 'face-man',
       color: '#E0FFFF',
-      count: 38
+      count: 0
     },
     {
       id: '6',
       name: 'Baby Care',
       icon: 'baby-face',
       color: '#FFFFE0',
-      count: 24
+      count: 0
     }
-  ];
+  ]);
+
+  useEffect(() => {
+    const fetchCategoryCounts = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const response = await fetch('http://192.168.1.102:8082/api/products/category-counts');
+        if (!response.ok) {
+          throw new Error('Failed to fetch category counts');
+        }
+        
+        const data = await response.json();
+        console.log('Received category counts:', data);
+        
+        setCategories(prev => prev.map(category => ({
+          ...category,
+          count: data[category.name] || 0
+        })));
+      } catch (err) {
+        console.error('Error fetching category counts:', err);
+        setError('Failed to load category counts');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCategoryCounts();
+  }, []);
 
   const handleCategoryPress = (categoryId: string) => {
     router.push({
@@ -120,49 +152,55 @@ export default function Categories() {
         contentContainerStyle={{ padding: 16, paddingTop: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
-          {categories.map((category) => (
-            <TouchableOpacity
-              key={category.id}
-              style={{
-                width: cardWidth,
-                backgroundColor: 'white',
-                borderRadius: 16,
-                padding: 16,
-                alignItems: 'center',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 4,
-                elevation: 2,
-              }}
-              onPress={() => handleCategoryPress(category.id)}
-            >
-              <View style={{
-                width: 64,
-                height: 64,
-                backgroundColor: category.color,
-                borderRadius: 32,
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: 12,
-              }}>
-                <MaterialCommunityIcons name={category.icon} size={32} color="#6C63FF" />
-              </View>
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                textAlign: 'center',
-                marginBottom: 4,
-              }}>
-                {category.name}
-              </Text>
-              <Text style={{ color: '#666', fontSize: 13 }}>
-                {category.count} Products
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {loading ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#6C63FF" />
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
+            {categories.map((category) => (
+              <TouchableOpacity
+                key={category.id}
+                style={{
+                  width: cardWidth,
+                  backgroundColor: 'white',
+                  borderRadius: 16,
+                  padding: 16,
+                  alignItems: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  elevation: 2,
+                }}
+                onPress={() => handleCategoryPress(category.id)}
+              >
+                <View style={{
+                  width: 64,
+                  height: 64,
+                  backgroundColor: category.color,
+                  borderRadius: 32,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 12,
+                }}>
+                  <MaterialCommunityIcons name={category.icon} size={32} color="#6C63FF" />
+                </View>
+                <Text style={{ 
+                  fontSize: 16, 
+                  fontWeight: '600', 
+                  textAlign: 'center',
+                  marginBottom: 4,
+                }}>
+                  {category.name}
+                </Text>
+                <Text style={{ color: '#666', fontSize: 13 }}>
+                  {category.count} Products
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </View>
   );

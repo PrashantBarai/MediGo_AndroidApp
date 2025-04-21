@@ -1,89 +1,84 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
-
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  image?: string;
-  manufacturer: string;
-  category: string;
-}
+import { useCart } from '../../../contexts/CartContext';
+import type { CartItem } from '../../../contexts/CartContext';
 
 export default function Cart() {
   const router = useRouter();
-  const [cartItems, setCartItems] = useState<CartItem[]>([
-    {
-      id: '1',
-      name: 'Paracetamol 500mg',
-      price: 50,
-      quantity: 2,
-      manufacturer: 'GSK Healthcare',
-      category: 'Medicines'
-    },
-    {
-      id: '2',
-      name: 'Vitamin C 1000mg',
-      price: 150,
-      quantity: 1,
-      manufacturer: 'HealthVit',
-      category: 'Vitamins'
-    },
-    {
-      id: '3',
-      name: 'First Aid Kit',
-      price: 500,
-      quantity: 1,
-      manufacturer: 'SafeCare',
-      category: 'Medical Supplies'
-    },
-  ]);
+  const { items, updateQuantity, clearCart, getTotal } = useCart();
 
-  const updateQuantity = (id: string, increment: boolean) => {
-    setCartItems(items =>
-      items.map(item =>
-        item.id === id
-          ? {
-              ...item,
-              quantity: increment
-                ? item.quantity + 1
-                : Math.max(0, item.quantity - 1),
-            }
-          : item
-      ).filter(item => item.quantity > 0) // Remove items with quantity 0
+  const handleClearCart = () => {
+    Alert.alert(
+      'Clear Cart',
+      'Are you sure you want to remove all items from your cart?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: clearCart
+        }
+      ]
     );
   };
 
-  const calculateTotal = () => {
-    return cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const calculateDiscount = (price: number, discount?: { percentage: number }) => {
+    if (!discount) return price;
+    return Math.round(price * (1 - discount.percentage / 100));
   };
 
-  const renderDefaultIcon = (category: string) => (
-    <View style={{
-      width: 60,
-      height: 60,
-      backgroundColor: '#6C63FF15',
-      borderRadius: 30,
-      justifyContent: 'center',
-      alignItems: 'center'
-    }}>
-      <MaterialCommunityIcons 
-        name={
-          category === 'Medicines' ? 'pill' : 
-          category === 'Vitamins' ? 'bottle-tonic' : 
-          'medical-bag'
-        } 
-        size={30} 
-        color="#6C63FF" 
-      />
-    </View>
-  );
+  const calculateTotalSavings = () => {
+    return items.reduce((savings, item) => {
+      if (item.discount) {
+        const originalTotal = item.price * item.quantity;
+        const discountedTotal = calculateDiscount(item.price, item.discount) * item.quantity;
+        return savings + (originalTotal - discountedTotal);
+      }
+      return savings;
+    }, 0);
+  };
 
-  if (cartItems.length === 0) {
+  const renderDefaultIcon = (category: string) => {
+    console.log('Rendering default icon for category:', category); // Debug log
+    return (
+      <View style={styles.defaultIcon}>
+        <MaterialCommunityIcons 
+          name={
+            category === 'Medicines' ? 'pill' : 
+            category === 'Vitamins' ? 'bottle-tonic' : 
+            'medical-bag'
+          } 
+          size={30} 
+          color="#6C63FF" 
+        />
+      </View>
+    );
+  };
+
+  const renderItemImage = (item: CartItem) => {
+    console.log('Rendering item image:', item.image); // Debug log
+    if (item.image) {
+      return (
+        <Image 
+          source={{ uri: item.image }} 
+          style={styles.itemImage}
+          onError={() => {
+            console.log('Image load error for:', item.name); // Debug log
+            return renderDefaultIcon(item.category);
+          }}
+        />
+      );
+    }
+    return renderDefaultIcon(item.category);
+  };
+
+  if (items.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <MaterialCommunityIcons name="cart-outline" size={80} color="#6C63FF30" />
@@ -106,11 +101,11 @@ export default function Cart() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>My Cart</Text>
-          <Text style={styles.itemCount}>{cartItems.length} items</Text>
+          <Text style={styles.itemCount}>{items.length} items</Text>
         </View>
         <TouchableOpacity 
           style={styles.clearButton}
-          onPress={() => setCartItems([])}
+          onPress={handleClearCart}
         >
           <MaterialCommunityIcons name="delete-outline" size={20} color="#FF5252" />
           <Text style={styles.clearButtonText}>Clear Cart</Text>
@@ -123,70 +118,86 @@ export default function Cart() {
         contentContainerStyle={styles.cartListContent}
         showsVerticalScrollIndicator={false}
       >
-        {cartItems.map((item, index) => (
-          <Animated.View 
-            key={item.id}
-            entering={FadeInDown.delay(index * 100)}
-            exiting={FadeOutDown}
-            style={styles.cartItem}
-          >
-            <View style={styles.itemHeader}>
-              {item.image ? (
-                <Image 
-                  source={{ uri: item.image }} 
-                  style={styles.itemImage}
-                  onError={() => renderDefaultIcon(item.category)}
-                />
-              ) : renderDefaultIcon(item.category)}
-              <View style={styles.itemInfo}>
-                <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemManufacturer}>{item.manufacturer}</Text>
-                <Text style={styles.itemPrice}>₹{item.price}</Text>
-              </View>
-            </View>
-            
-            <View style={styles.itemFooter}>
-              <View style={styles.quantityContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.quantityButton,
-                    item.quantity === 1 && styles.quantityButtonDanger
-                  ]}
-                  onPress={() => updateQuantity(item.id, false)}
-                >
-                  <MaterialCommunityIcons 
-                    name={item.quantity === 1 ? "delete-outline" : "minus"} 
-                    size={20} 
-                    color={item.quantity === 1 ? "#FF5252" : "#6C63FF"} 
-                  />
-                </TouchableOpacity>
-                <View style={styles.quantityWrapper}>
-                  <Text style={styles.quantity}>{item.quantity}</Text>
+        {items.map((item, index) => {
+          const discountedPrice = calculateDiscount(item.price, item.discount);
+          const totalItemPrice = discountedPrice * item.quantity;
+
+          return (
+            <Animated.View 
+              key={item.id}
+              entering={FadeInDown.delay(index * 100)}
+              exiting={FadeOutDown}
+              style={styles.cartItem}
+            >
+              <View style={styles.itemHeader}>
+                {renderItemImage(item)}
+                <View style={styles.itemInfo}>
+                  <Text style={styles.itemName}>{item.name}</Text>
+                  <Text style={styles.itemManufacturer}>{item.manufacturer}</Text>
+                  <View style={styles.priceContainer}>
+                    <Text style={styles.itemPrice}>₹{discountedPrice}</Text>
+                    {item.discount && (
+                      <>
+                        <Text style={styles.originalPrice}>₹{item.price}</Text>
+                        <View style={styles.discountBadge}>
+                          <Text style={styles.discountText}>{item.discount.percentage}% OFF</Text>
+                        </View>
+                      </>
+                    )}
+                  </View>
                 </View>
-                <TouchableOpacity
-                  style={styles.quantityButton}
-                  onPress={() => updateQuantity(item.id, true)}
-                >
-                  <MaterialCommunityIcons name="plus" size={20} color="#6C63FF" />
-                </TouchableOpacity>
               </View>
-              <Text style={styles.totalPrice}>₹{item.price * item.quantity}</Text>
-            </View>
-          </Animated.View>
-        ))}
+              
+              <View style={styles.itemFooter}>
+                <View style={styles.quantityContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.quantityButton,
+                      item.quantity === 1 && styles.quantityButtonDanger
+                    ]}
+                    onPress={() => updateQuantity(item.id, false)}
+                  >
+                    <MaterialCommunityIcons 
+                      name={item.quantity === 1 ? "delete-outline" : "minus"} 
+                      size={20} 
+                      color={item.quantity === 1 ? "#FF5252" : "#6C63FF"} 
+                    />
+                  </TouchableOpacity>
+                  <View style={styles.quantityWrapper}>
+                    <Text style={styles.quantity}>{item.quantity}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.quantityButton}
+                    onPress={() => updateQuantity(item.id, true)}
+                  >
+                    <MaterialCommunityIcons name="plus" size={20} color="#6C63FF" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.totalPrice}>₹{totalItemPrice}</Text>
+              </View>
+            </Animated.View>
+          );
+        })}
       </ScrollView>
 
-      {/* Bottom Section */}
+      {/* Summary */}
       <Animated.View 
         entering={FadeInDown}
-        style={styles.bottomSection}
+        style={styles.summary}
       >
-        <View style={styles.totalContainer}>
-          <View>
-            <Text style={styles.totalLabel}>Total Amount</Text>
-            <Text style={styles.itemCount}>Including all taxes</Text>
+        <View style={styles.summaryContent}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Items ({items.length})</Text>
+            <Text style={styles.summaryValue}>₹{getTotal()}</Text>
           </View>
-          <Text style={styles.totalAmount}>₹{calculateTotal()}</Text>
+          {calculateTotalSavings() > 0 && (
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: '#4CD964' }]}>Total Savings</Text>
+              <Text style={[styles.summaryValue, { color: '#4CD964' }]}>
+                -₹{calculateTotalSavings()}
+              </Text>
+            </View>
+          )}
         </View>
         <TouchableOpacity 
           style={styles.checkoutButton}
@@ -257,6 +268,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
+  defaultIcon: {
+    width: 60,
+    height: 60,
+    backgroundColor: '#6C63FF15',
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   itemImage: {
     width: 60,
     height: 60,
@@ -276,10 +295,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666666',
   },
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
   itemPrice: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#6C63FF',
+    color: '#1A1A1A',
+  },
+  originalPrice: {
+    fontSize: 14,
+    color: '#666666',
+    textDecorationLine: 'line-through',
+  },
+  discountBadge: {
+    backgroundColor: '#FF525215',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  discountText: {
+    color: '#FF5252',
+    fontSize: 12,
+    fontWeight: '600',
   },
   itemFooter: {
     flexDirection: 'row',
@@ -323,29 +364,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1A1A1A',
   },
-  bottomSection: {
+  summary: {
     backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 32,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
   },
-  totalContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  summaryContent: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 16,
   },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1A1A1A',
-    marginBottom: 4,
+  summaryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  totalAmount: {
-    fontSize: 24,
-    fontWeight: '700',
+  summaryLabel: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '500',
     color: '#1A1A1A',
   },
   checkoutButton: {

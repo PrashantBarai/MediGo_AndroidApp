@@ -4,66 +4,127 @@ const orderItemSchema = new mongoose.Schema({
   product: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product',
-    required: true,
+    required: true
   },
   quantity: {
     type: Number,
     required: true,
+    min: 1
   },
   price: {
     type: Number,
-    required: true,
+    required: true
   },
+  originalPrice: {
+    type: Number,
+    required: true
+  },
+  discount: {
+    percentage: Number,
+    validUntil: String
+  }
+});
+
+const deliveryAddressSchema = new mongoose.Schema({
+  fullName: {
+    type: String,
+    required: true
+  },
+  phoneNumber: {
+    type: String,
+    required: true
+  },
+  addressLine1: {
+    type: String,
+    required: true
+  },
+  addressLine2: {
+    type: String
+  },
+  landmark: {
+    type: String
+  },
+  city: {
+    type: String,
+    required: true
+  },
+  state: {
+    type: String
+  },
+  pincode: {
+    type: String,
+    required: true
+  }
 });
 
 const orderSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+  userId: {
+    type: String,
     required: true,
+    default: 'guest'
   },
-  pharmacy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+  items: {
+    type: [orderItemSchema],
     required: true,
+    validate: {
+      validator: function(items) {
+        return items && items.length > 0;
+      },
+      message: 'At least one item is required'
+    }
   },
-  items: [orderItemSchema],
   totalAmount: {
     type: Number,
-    required: true,
+    required: true
+  },
+  deliveryFee: {
+    type: Number,
+    default: 50
+  },
+  totalSavings: {
+    type: Number,
+    default: 0
   },
   deliveryAddress: {
-    id: String,
-    type: String,
-    address: String,
-    coordinates: {
-      latitude: Number,
-      longitude: Number,
-    },
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'confirmed', 'processing', 'out_for_delivery', 'delivered', 'cancelled'],
-    default: 'pending',
+    type: deliveryAddressSchema,
+    required: true
   },
   paymentMethod: {
     type: String,
-    enum: ['cash_on_delivery', 'online'],
     required: true,
+    enum: ['cod', 'card', 'upi']
   },
   paymentStatus: {
     type: String,
+    required: true,
     enum: ['pending', 'completed', 'failed'],
-    default: 'pending',
+    default: 'pending'
   },
-  createdAt: {
+  orderStatus: {
+    type: String,
+    required: true,
+    enum: ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled'],
+    default: 'placed'
+  },
+  orderDate: {
     type: Date,
-    default: Date.now,
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now,
-  },
+    default: Date.now
+  }
+}, {
+  timestamps: true
+});
+
+// Calculate total savings before saving
+orderSchema.pre('save', function(next) {
+  this.totalSavings = this.items.reduce((savings, item) => {
+    if (item.discount && item.discount.percentage) {
+      const originalTotal = item.originalPrice * item.quantity;
+      const discountedTotal = item.price * item.quantity;
+      return savings + (originalTotal - discountedTotal);
+    }
+    return savings;
+  }, 0);
+  next();
 });
 
 module.exports = mongoose.model('Order', orderSchema);

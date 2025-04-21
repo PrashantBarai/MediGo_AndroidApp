@@ -1,99 +1,38 @@
-import { View, Text, ScrollView, TouchableOpacity, Image, TextInput, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, TextInput, Dimensions, ActivityIndicator, ToastAndroid } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect } from 'react';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
+import { useCart } from '../../contexts/CartContext';
 
 interface Product {
   id: string;
   name: string;
   price: number;
   rating: number;
+  totalReviews: number;
   description: string;
-  image?: string;
-  inStock: boolean;
+  longDescription: string;
   manufacturer: string;
   category: string;
+  customerCategory: string;
+  inStock: boolean;
+  image?: string;
   discount?: {
     percentage: number;
     validUntil: string;
   };
+  highlights: string[];
+  keyIngredients: string[];
+  batchNumber: string;
+  expiryDate: string;
+  quantity: number;
+  prescriptionRequired: boolean;
+  sideEffects: string[];
+  dosage: string;
+  storage: string;
+  manufacturingDate: string;
 }
-
-const PRODUCTS: Record<string, Product[]> = {
-  '1': [
-    { 
-      id: '1', 
-      name: 'Horlicks Health Drink', 
-      price: 299, 
-      rating: 4.5, 
-      description: 'Classic Malt • 500g Jar',
-      manufacturer: 'GSK Consumer Healthcare',
-      category: 'Nutritional Drinks',
-      inStock: true,
-      discount: {
-        percentage: 15,
-        validUntil: '2024-03-31'
-      }
-    },
-    { 
-      id: '2', 
-      name: 'Boost Energy Drink', 
-      price: 275, 
-      rating: 4.3, 
-      description: 'Chocolate Flavor • 750g Jar',
-      manufacturer: 'GSK Consumer Healthcare',
-      category: 'Nutritional Drinks',
-      inStock: true
-    },
-    { 
-      id: '3', 
-      name: 'Ensure Complete Nutrition', 
-      price: 599, 
-      rating: 4.7, 
-      description: 'Vanilla Flavor • 400g Pack',
-      manufacturer: 'Abbott Healthcare',
-      category: 'Nutritional Drinks',
-      inStock: false
-    },
-  ],
-  '2': [
-    { 
-      id: '1', 
-      name: 'Organic Ashwagandha', 
-      price: 199, 
-      rating: 4.4, 
-      description: '60 Tablets • 500mg',
-      manufacturer: 'Himalaya Wellness',
-      category: 'Ayurveda',
-      inStock: true,
-      discount: {
-        percentage: 20,
-        validUntil: '2024-03-31'
-      }
-    },
-    { 
-      id: '2', 
-      name: 'Dabur Chyawanprash', 
-      price: 350, 
-      rating: 4.6, 
-      description: 'Immunity Booster • 1kg',
-      manufacturer: 'Dabur India Ltd',
-      category: 'Ayurveda',
-      inStock: true
-    },
-    { 
-      id: '3', 
-      name: 'Patanjali Giloy Tablets', 
-      price: 150, 
-      rating: 4.2, 
-      description: '60 Tablets • Natural',
-      manufacturer: 'Patanjali Ayurved',
-      category: 'Ayurveda',
-      inStock: true
-    },
-  ],
-};
 
 export default function ProductsScreen() {
   const { id: categoryId } = useLocalSearchParams();
@@ -102,17 +41,29 @@ export default function ProductsScreen() {
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const { items, addItem, removeItem } = useCart();
 
   // Fetch products from API
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         setLoading(true);
-        const apiUrl = 'http://192.168.1.101:8082/api/products';
-        const response = await fetch(apiUrl);
+        setError(null);
+        
+        // Use your computer's IP address for mobile testing
+        const apiUrl = 'http://192.168.1.102:8082/api/products';
+        console.log('Fetching products from:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        });
         
         if (!response.ok) {
-          throw new Error('Failed to fetch products');
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         const data = await response.json();
@@ -122,26 +73,37 @@ export default function ProductsScreen() {
         const transformedProducts = data.map((item: any) => ({
           id: item._id,
           name: item.name,
-          price: parseFloat(item.price.replace('₹', '')),
+          price: parseFloat(item.price),
           rating: item.rating || 0,
+          totalReviews: item.totalReviews || 0,
           description: item.description,
+          longDescription: item.description,
           manufacturer: item.manufacturer,
           category: item.category,
+          customerCategory: item.customerCategory,
           inStock: item.stock > 0,
           image: item.images && item.images.length > 0 ? item.images[0] : undefined,
           discount: item.discount ? {
             percentage: item.discount.percentage || 0,
             validUntil: item.discount.validUntil ? new Date(item.discount.validUntil).toISOString().split('T')[0] : ''
-          } : undefined
+          } : undefined,
+          highlights: item.highlights || [],
+          keyIngredients: item.ingredients || [],
+          batchNumber: item.batchNumber || '',
+          expiryDate: item.expiryDate || '',
+          quantity: item.stock || 0,
+          prescriptionRequired: item.prescriptionRequired || false,
+          sideEffects: item.sideEffects || [],
+          dosage: item.dosage || '',
+          storage: item.storageInstructions || '',
+          manufacturingDate: item.manufacturingDate || ''
         }));
         
         setProducts(transformedProducts);
-        setError(null);
       } catch (err) {
         console.error('Error fetching products:', err);
-        setError('Failed to load products. Please check your connection.');
-        // Fallback to static products if API fails
-        setProducts(PRODUCTS[categoryId as string] || []);
+        setError('Failed to load products. Please check your connection and try again.');
+        setProducts([]);
       } finally {
         setLoading(false);
       }
@@ -153,11 +115,31 @@ export default function ProductsScreen() {
   const screenWidth = Dimensions.get('window').width;
   const cardWidth = (screenWidth - 32) / 2;
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.manufacturer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.description.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Map category IDs to customer categories
+  const CATEGORY_MAPPING: Record<string, string> = {
+    '1': 'Nutritional Drinks',
+    '2': 'Ayurveda',
+    '3': 'Vitamins',
+    '4': 'Healthcare',
+    '5': 'Personal Care',
+    '6': 'Baby Care'
+  };
+
+  const filteredProducts = products.filter(product => {
+    // First filter by customer category
+    const categoryMatch = product.customerCategory === CATEGORY_MAPPING[categoryId as string];
+    
+    // Then apply search filter if search query exists
+    if (searchQuery) {
+      return categoryMatch && (
+        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.manufacturer.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.description.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    
+    return categoryMatch;
+  });
 
   const sortedProducts = [...filteredProducts].sort((a, b) => {
     switch (sortBy) {
@@ -175,6 +157,28 @@ export default function ProductsScreen() {
       pathname: "/(customer)/products/details/[id]",
       params: { id: productId }
     });
+  };
+
+  const handleCartAction = (e: any, product: Product) => {
+    e.stopPropagation(); // Prevent navigation to product details
+    
+    const isInCart = items.some(item => item.id === product.id);
+    
+    if (isInCart) {
+      removeItem(product.id);
+      ToastAndroid.show('Removed from cart', ToastAndroid.SHORT);
+    } else {
+      addItem({
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        manufacturer: product.manufacturer,
+        category: product.category,
+        image: product.image,
+        discount: product.discount
+      });
+      ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
+    }
   };
 
   return (
@@ -315,147 +319,168 @@ export default function ProductsScreen() {
           </View>
         ) : (
           <View style={{ gap: 12 }}>
-            {sortedProducts.map((product, index) => (
-              <Animated.View
-                key={product.id}
-                entering={FadeInDown.delay(index * 100)}
-              >
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: 'white',
-                    borderRadius: 16,
-                    padding: 12,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 4,
-                    elevation: 2,
-                  }}
-                  onPress={() => handleProductPress(product.id)}
-                  activeOpacity={0.7}
+            {sortedProducts.map((product, index) => {
+              const isInCart = items.some(item => item.id === product.id);
+              
+              return (
+                <Animated.View
+                  key={product.id}
+                  entering={FadeInDown.delay(index * 100)}
                 >
-                  <View style={{ flexDirection: 'row' }}>
-                    {/* Product Image */}
-                    <View style={{
-                      width: 100,
-                      height: 100,
-                      backgroundColor: '#F8F9FA',
-                      borderRadius: 12,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      overflow: 'hidden'
-                    }}>
-                      {product.image ? (
-                        <Image 
-                          source={{ uri: product.image }} 
-                          style={{ width: '100%', height: '100%' }}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <MaterialCommunityIcons 
-                          name={product.category === 'Nutritional Drinks' ? 'bottle-tonic' : 'pill'} 
-                          size={48} 
-                          color="#6C63FF" 
-                        />
-                      )}
-                      {product.discount && (
-                        <View style={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          backgroundColor: '#FF5252',
-                          paddingHorizontal: 8,
-                          paddingVertical: 4,
-                          borderRadius: 8
-                        }}>
-                          <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
-                            {product.discount.percentage}% OFF
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Product Info */}
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text 
-                        numberOfLines={1} 
-                        style={{ 
-                          fontSize: 18, 
-                          fontWeight: '600',
-                          color: '#1A1A1A',
-                          marginBottom: 4
-                        }}
-                      >
-                        {product.name}
-                      </Text>
-
-                      <Text 
-                        numberOfLines={1} 
-                        style={{ 
-                          color: '#666666',
-                          fontSize: 14,
-                          marginBottom: 4
-                        }}
-                      >
-                        {product.description}
-                      </Text>
-
-                      {/* Manufacturer & Rating */}
-                      <Text style={{ 
-                        color: '#666666', 
-                        fontSize: 14,
-                        marginBottom: 4
+                  <TouchableOpacity
+                    style={{
+                      backgroundColor: 'white',
+                      borderRadius: 16,
+                      padding: 12,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 4,
+                      elevation: 2,
+                    }}
+                    onPress={() => handleProductPress(product.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row' }}>
+                      {/* Product Image */}
+                      <View style={{
+                        width: 100,
+                        height: 100,
+                        backgroundColor: '#F8F9FA',
+                        borderRadius: 12,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        overflow: 'hidden'
                       }}>
-                        {product.manufacturer}
-                      </Text>
-
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                        <MaterialIcons name="star" size={16} color="#22C55E" />
-                        <Text style={{ 
-                          marginLeft: 4, 
-                          color: '#22C55E', 
-                          fontSize: 14,
-                          fontWeight: '500'
-                        }}>
-                          {product.rating}
-                        </Text>
-                      </View>
-                      
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <View>
-                          <Text style={{ color: '#6C63FF', fontSize: 18, fontWeight: '700' }}>₹{product.price}</Text>
-                          {product.discount && (
-                            <Text style={{ 
-                              color: '#666666', 
-                              fontSize: 12, 
-                              textDecorationLine: 'line-through' 
-                            }}>
-                              ₹{Math.round(product.price * (1 + product.discount.percentage/100))}
-                            </Text>
-                          )}
-                        </View>
-                        {!product.inStock ? (
-                          <Text style={{ color: '#FF5252', fontSize: 12, fontWeight: '500' }}>Out of Stock</Text>
+                        {product.image ? (
+                          <Image 
+                            source={{ uri: product.image }} 
+                            style={{ width: '100%', height: '100%' }}
+                            resizeMode="cover"
+                          />
                         ) : (
-                          <TouchableOpacity
-                            style={{
-                              backgroundColor: '#6C63FF',
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
-                              justifyContent: 'center',
-                              alignItems: 'center'
-                            }}
-                          >
-                            <MaterialCommunityIcons name="plus" size={20} color="white" />
-                          </TouchableOpacity>
+                          <MaterialCommunityIcons 
+                            name={product.category === 'Nutritional Drinks' ? 'bottle-tonic' : 'pill'} 
+                            size={48} 
+                            color="#6C63FF" 
+                          />
+                        )}
+                        {product.discount && (
+                          <View style={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            backgroundColor: '#FF5252',
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: 8
+                          }}>
+                            <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
+                              {product.discount.percentage}% OFF
+                            </Text>
+                          </View>
                         )}
                       </View>
+
+                      {/* Product Info */}
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text 
+                          numberOfLines={1} 
+                          style={{ 
+                            fontSize: 18, 
+                            fontWeight: '600',
+                            color: '#1A1A1A',
+                            marginBottom: 4
+                          }}
+                        >
+                          {product.name}
+                        </Text>
+
+                        <Text 
+                          numberOfLines={1} 
+                          style={{ 
+                            color: '#666666',
+                            fontSize: 14,
+                            marginBottom: 4
+                          }}
+                        >
+                          {product.description}
+                        </Text>
+
+                        {/* Manufacturer */}
+                        <View style={{
+                          backgroundColor: '#F0FDF4',
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                          borderRadius: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          marginBottom: 4,
+                          alignSelf: 'flex-start'
+                        }}>
+                          <MaterialIcons name="business" size={16} color="#22C55E" />
+                          <Text style={{ marginLeft: 4, color: '#22C55E', fontWeight: '600' }}>
+                            Manufacturer: {product.manufacturer}
+                          </Text>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                          <MaterialIcons name="star" size={16} color="#22C55E" />
+                          <Text style={{ 
+                            marginLeft: 4, 
+                            color: '#22C55E', 
+                            fontSize: 14,
+                            fontWeight: '500'
+                          }}>
+                            {product.rating}
+                          </Text>
+                        </View>
+                        
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <View>
+                            <Text style={{ color: '#6C63FF', fontSize: 18, fontWeight: '700' }}>
+                              ₹{product.discount 
+                                ? Math.round(product.price * (1 - product.discount.percentage/100)) 
+                                : product.price}
+                            </Text>
+                            {product.discount && (
+                              <Text style={{ 
+                                color: '#666666', 
+                                fontSize: 12, 
+                                textDecorationLine: 'line-through' 
+                              }}>
+                                ₹{product.price}
+                              </Text>
+                            )}
+                          </View>
+                          {!product.inStock ? (
+                            <Text style={{ color: '#FF5252', fontSize: 12, fontWeight: '500' }}>Out of Stock</Text>
+                          ) : (
+                            <TouchableOpacity
+                              style={{
+                                backgroundColor: isInCart ? '#FF5252' : '#6C63FF',
+                                width: 32,
+                                height: 32,
+                                borderRadius: 16,
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                              }}
+                              onPress={(e) => handleCartAction(e, product)}
+                            >
+                              <MaterialCommunityIcons 
+                                name={isInCart ? "cart-remove" : "cart-plus"} 
+                                size={20} 
+                                color="white" 
+                              />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
                     </View>
-                  </View>
-                </TouchableOpacity>
-              </Animated.View>
-            ))}
+                  </TouchableOpacity>
+                </Animated.View>
+              );
+            })}
           </View>
         )}
       </ScrollView>

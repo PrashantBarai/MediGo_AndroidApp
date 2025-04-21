@@ -1,20 +1,49 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 type OrderStatus = 'ALL' | 'PENDING' | 'CONFIRMED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 
-interface Order {
-  id: string;
-  date: string;
-  status: OrderStatus;
-  items: number;
-  total: number;
+interface OrderItem {
+  product: {
+    name: string;
+    price: number;
+    image?: string;
+    category: string;
+    manufacturer: string;
+  };
+  quantity: number;
+  price: number;
+  originalPrice: number;
+  discount?: {
+    percentage: number;
+    validUntil: string;
+  };
 }
 
-const getStatusColor = (status: OrderStatus) => {
-  switch (status) {
+interface Order {
+  _id: string;
+  userId: string;
+  items: OrderItem[];
+  totalAmount: number;
+  deliveryFee: number;
+  totalSavings: number;
+  deliveryAddress: {
+    fullName: string;
+    phoneNumber: string;
+    address: string;
+  };
+  paymentMethod: string;
+  paymentStatus: string;
+  orderStatus: string;
+  orderDate: string;
+  displayStatus?: string;
+}
+
+const getStatusColor = (status: string) => {
+  switch (status.toUpperCase()) {
+    case 'PLACED':
     case 'PENDING':
       return '#FF9800';
     case 'CONFIRMED':
@@ -30,8 +59,8 @@ const getStatusColor = (status: OrderStatus) => {
   }
 };
 
-const getStatusIcon = (status: OrderStatus) => {
-  switch (status) {
+const getStatusIcon = (status: string) => {
+  switch (status.toUpperCase()) {
     case 'ALL':
       return 'list-outline';
     case 'PENDING':
@@ -41,60 +70,62 @@ const getStatusIcon = (status: OrderStatus) => {
     case 'SHIPPED':
       return 'bicycle-outline';
     case 'DELIVERED':
-      return 'checkbox-outline';
+      return 'checkmark-done-outline';
     case 'CANCELLED':
       return 'close-circle-outline';
     default:
-      return 'help-circle-outline';
+      return 'list-outline';
   }
 };
 
 export default function Orders() {
   const router = useRouter();
-  const [selectedStatus, setSelectedStatus] = useState<OrderStatus>('ALL');
+  const navigation = useNavigation();
+  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock orders data (replace with API call)
-  const orders: Order[] = [
-    {
-      id: '1',
-      date: '2024-02-15',
-      status: 'PENDING',
-      items: 2,
-      total: 300,
-    },
-    {
-      id: '2',
-      date: '2024-02-14',
-      status: 'CONFIRMED',
-      items: 1,
-      total: 130,
-    },
-    {
-      id: '5',
-      date: '2024-02-14',
-      status: 'SHIPPED',
-      items: 2,
-      total: 1500,
-    },
-    {
-      id: '3',
-      date: '2024-02-13',
-      status: 'DELIVERED',
-      items: 2,
-      total: 700,
-    },
-    {
-      id: '4',
-      date: '2024-02-12',
-      status: 'CANCELLED',
-      items: 1,
-      total: 550,
+  const getDisplayStatus = (status: string): string => {
+    return status === 'placed' ? 'PENDING' : status.toUpperCase();
+  };
+
+  const fetchOrders = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await fetch('http://192.168.1.102:8082/api/orders/user?userId=guest');
+      if (!response.ok) {
+        throw new Error('Failed to fetch orders');
+      }
+      const data = await response.json();
+      setOrders(data);
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+      setError('Failed to load orders. Please try again.');
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
+
+  // Initial fetch
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  // Refresh when navigating back to this screen
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('Orders screen focused - fetching orders');
+      fetchOrders();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const filteredOrders = selectedStatus === 'ALL'
     ? orders
-    : orders.filter(order => order.status === selectedStatus);
+    : orders.filter(order => getDisplayStatus(order.orderStatus) === selectedStatus);
 
   const handleOrderPress = (orderId: string) => {
     router.push({
@@ -103,16 +134,25 @@ export default function Orders() {
     });
   };
 
-  if (filteredOrders.length === 0) {
+  if (loading) {
     return (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="receipt-outline" size={64} color="#9E9E9E" />
-        <Text style={styles.emptyText}>No orders yet</Text>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Loading orders...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="alert-circle-outline" size={64} color="#FF5252" />
+        <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity
-          style={styles.shopButton}
-          onPress={() => router.push("/categories")}
+          style={styles.retryButton}
+          onPress={fetchOrders}
         >
-          <Text style={styles.shopButtonText}>Start Shopping</Text>
+          <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
     );
@@ -132,77 +172,110 @@ export default function Orders() {
         style={[styles.filterContainer, { maxHeight: 40 }]}
         contentContainerStyle={styles.filterContent}
       >
-        {(['ALL', 'PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'] as OrderStatus[]).map((status) => (
+        {(['All', 'Pending', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled']).map((status) => (
           <TouchableOpacity
             key={status}
             style={[
               styles.filterButton,
-              selectedStatus === status && styles.filterButtonActive,
+              selectedStatus === (status === 'All' ? 'ALL' : status.toUpperCase()) && styles.filterButtonActive,
             ]}
-            onPress={() => setSelectedStatus(status)}
+            onPress={() => {
+              const newStatus = status === 'All' ? 'ALL' : status.toUpperCase();
+              console.log('Setting status to:', newStatus);
+              setSelectedStatus(newStatus);
+            }}
           >
             <Ionicons
-              name={getStatusIcon(status)}
+              name={getStatusIcon(status === 'All' ? 'ALL' : status.toUpperCase())}
               size={14}
-              color={selectedStatus === status ? '#FFFFFF' : getStatusColor(status)}
+              color={selectedStatus === (status === 'All' ? 'ALL' : status.toUpperCase()) 
+                ? '#FFFFFF' 
+                : getStatusColor(status === 'All' ? 'ALL' : status.toUpperCase())}
             />
             <Text
               style={[
                 styles.filterText,
-                selectedStatus === status && styles.filterTextActive,
+                selectedStatus === (status === 'All' ? 'ALL' : status.toUpperCase()) && styles.filterTextActive,
               ]}
             >
-              {status.charAt(0) + status.slice(1).toLowerCase()}
+              {status}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
       {/* Orders List */}
-      <ScrollView style={styles.ordersList}>
-        {filteredOrders.map((order) => (
+      {orders.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="receipt-outline" size={64} color="#9E9E9E" />
+          <Text style={styles.emptyText}>No orders yet</Text>
           <TouchableOpacity
-            key={order.id}
-            style={styles.orderCard}
-            onPress={() => handleOrderPress(order.id)}
+            style={styles.shopButton}
+            onPress={() => router.push("/(customer)/(tabs)/home")}
           >
-            <View style={styles.orderHeader}>
-              <View style={styles.orderInfo}>
-                <Text style={styles.orderId}>{order.id}</Text>
-                <Text style={styles.orderDate}>{order.date}</Text>
-              </View>
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: `${getStatusColor(order.status)}20` },
-                ]}
-              >
-                <Ionicons
-                  name={getStatusIcon(order.status)}
-                  size={16}
-                  color={getStatusColor(order.status)}
-                />
-                <Text
+            <Text style={styles.shopButtonText}>Start Shopping</Text>
+          </TouchableOpacity>
+        </View>
+      ) : filteredOrders.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="receipt-outline" size={64} color="#9E9E9E" />
+          <Text style={styles.emptyText}>No {selectedStatus.toLowerCase()} orders</Text>
+          <TouchableOpacity
+            style={styles.filterResetButton}
+            onPress={() => setSelectedStatus('ALL')}
+          >
+            <Text style={styles.filterResetButtonText}>Show All Orders</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ScrollView style={styles.ordersList}>
+          {filteredOrders.map((order, index) => (
+            <TouchableOpacity
+              key={order._id}
+              style={styles.orderCard}
+              onPress={() => handleOrderPress(order._id)}
+            >
+              <View style={styles.orderHeader}>
+                <View style={styles.orderInfo}>
+                  <Text style={styles.orderId}>Order: {index + 1}</Text>
+                  <Text style={styles.orderDate}>
+                    {new Date(order.orderDate).toLocaleDateString('en-IN')}
+                  </Text>
+                </View>
+                <View
                   style={[
-                    styles.statusText,
-                    { color: getStatusColor(order.status) },
+                    styles.statusBadge,
+                    { backgroundColor: getStatusColor(getDisplayStatus(order.orderStatus)) + '20' },
                   ]}
                 >
-                  {order.status}
-                </Text>
+                  <Ionicons
+                    name={getStatusIcon(getDisplayStatus(order.orderStatus))}
+                    size={14}
+                    color={getStatusColor(getDisplayStatus(order.orderStatus))}
+                    style={styles.statusIcon}
+                  />
+                  <Text
+                    style={[
+                      styles.statusText,
+                      { color: getStatusColor(getDisplayStatus(order.orderStatus)) },
+                    ]}
+                  >
+                    {getDisplayStatus(order.orderStatus)}
+                  </Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.orderDetails}>
-              <Text style={styles.itemCount}>{order.items} items</Text>
-              <Text style={styles.orderTotal}>₹{order.total}</Text>
-            </View>
-            <View style={styles.viewDetailsContainer}>
-              <Text style={styles.viewDetailsText}>View Details</Text>
-              <Ionicons name="chevron-forward" size={20} color="#6C63FF" />
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <View style={styles.orderDetails}>
+                <Text style={styles.itemCount}>{order.items.length} items</Text>
+                <Text style={styles.orderTotal}>₹{order.totalAmount}</Text>
+              </View>
+              <View style={styles.viewDetailsContainer}>
+                <Text style={styles.viewDetailsText}>View Details</Text>
+                <Ionicons name="chevron-forward" size={20} color="#6C63FF" />
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -211,6 +284,77 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#666666',
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  errorText: {
+    marginTop: 12,
+    color: '#FF5252',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: '#6C63FF',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 16,
+    marginBottom: 32,
+  },
+  shopButton: {
+    backgroundColor: '#6C63FF',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  shopButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  filterResetButton: {
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  filterResetButtonText: {
+    color: '#666666',
+    fontSize: 14,
+    fontWeight: '500',
   },
   header: {
     paddingHorizontal: 20,
@@ -249,6 +393,9 @@ const styles = StyleSheet.create({
   },
   filterButtonActive: {
     backgroundColor: '#6C63FF',
+  },
+  filterIcon: {
+    marginRight: 6,
   },
   filterText: {
     fontSize: 12,
@@ -301,10 +448,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
+  statusIcon: {
+    marginRight: 3,
+  },
   statusText: {
     fontSize: 11,
     fontWeight: '600',
-    marginLeft: 3,
   },
   orderDetails: {
     flexDirection: 'row',
@@ -335,29 +484,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6C63FF',
     marginRight: 2,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-  },
-  emptyText: {
-    fontSize: 18,
-    color: '#666',
-    marginTop: 15,
-    marginBottom: 30,
-  },
-  shopButton: {
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  shopButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
 }); 

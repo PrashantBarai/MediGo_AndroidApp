@@ -170,7 +170,35 @@ module.exports = {
           message: 'Product data is required'
         });
       }
+
+      // Validate required fields including customerCategory
+      const requiredFields = [
+        'name', 
+        'description', 
+        'price', 
+        'manufacturer', 
+        'category', 
+        'customerCategory',
+        'manufacturingDate'
+      ];
+      const missingFields = requiredFields.filter(field => !productData[field]);
       
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing required fields: ${missingFields.join(', ')}`
+        });
+      }
+
+      // Ensure price is a number
+      productData.price = parseFloat(productData.price);
+      if (isNaN(productData.price)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Price must be a valid number'
+        });
+      }
+
       // Parse discount if it's a string
       if (typeof productData.discount === 'string') {
         try {
@@ -184,44 +212,20 @@ module.exports = {
       // Fix ingredients serialization
       if (typeof productData.ingredients === 'string') {
         try {
-          // First parse the string to get the array
           let ingredientsArray = JSON.parse(productData.ingredients);
-          
-          // If it's an array, clean each ingredient
           if (Array.isArray(ingredientsArray)) {
             ingredientsArray = ingredientsArray.map(ing => {
               if (typeof ing === 'string') {
-                // Remove all extra brackets and slashes
                 return ing.replace(/[\[\]\\"]/g, '').trim();
               }
               return ing;
             }).filter(ing => ing && ing.trim() !== '');
           }
-          
           productData.ingredients = ingredientsArray;
         } catch (error) {
           console.error('Error parsing ingredients:', error);
           productData.ingredients = [];
         }
-      }
-
-      // Validate required fields
-      const requiredFields = ['name', 'description', 'price', 'manufacturer', 'category', 'manufacturingDate'];
-      const missingFields = requiredFields.filter(field => !productData[field]);
-      
-      if (missingFields.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Missing required fields: ${missingFields.join(', ')}`
-        });
-      }
-      
-      // Check if validUntil is missing in discount
-      if (!productData.discount || !productData.discount.validUntil) {
-        return res.status(400).json({
-          success: false,
-          message: 'Missing required field: discount.validUntil'
-        });
       }
 
       // Use images from req.body.images (uploaded by middleware)
@@ -280,7 +284,7 @@ module.exports = {
               existingImages = req.body.existingImages;
             }
           }
-        } catch (error) {
+  } catch (error) {
           console.error('Error parsing product data:', error);
           return res.status(400).json({
             success: false,
@@ -406,7 +410,7 @@ module.exports = {
         });
       }
 
-      // Update product
+// Update product
       const updatedProduct = await Product.findByIdAndUpdate(
         productId,
         productData,
@@ -432,7 +436,49 @@ module.exports = {
 
   getProducts: async (req, res) => {
     try {
-      const products = await Product.find();
+      const { 
+        customerCategory,
+        category,
+        manufacturer,
+        minPrice,
+        maxPrice,
+        search 
+      } = req.query;
+
+      // Build filter object
+      const filter = {};
+
+      // Add customerCategory filter if provided
+      if (customerCategory) {
+        filter.customerCategory = customerCategory;
+      }
+
+      // Add category filter if provided
+      if (category) {
+        filter.category = category;
+      }
+
+      // Add manufacturer filter if provided
+      if (manufacturer) {
+        filter.manufacturer = manufacturer;
+      }
+
+      // Add price range filter if provided
+      if (minPrice || maxPrice) {
+        filter.price = {};
+        if (minPrice) filter.price.$gte = parseFloat(minPrice);
+        if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
+      }
+
+      // Add search filter if provided
+      if (search) {
+        filter.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } }
+        ];
+      }
+
+      const products = await Product.find(filter);
       res.json(products);
     } catch (error) {
       console.error('Error getting products:', error);
@@ -573,12 +619,55 @@ module.exports = {
           message: 'Failed to update product'
         });
       }
-  } catch (error) {
+    } catch (error) {
       console.error('Error deleting product image:', error);
       return res.status(500).json({
         success: false,
         message: 'Error deleting image: ' + error.message
       });
+    }
+  },
+
+  // Get product counts by category
+  getCategoryCounts: async (req, res) => {
+    try {
+      const categoryCounts = await Product.aggregate([
+        {
+          $group: {
+            _id: '$customerCategory',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+
+      // Define the expected categories
+      const expectedCategories = [
+        'Nutritional Drinks',
+        'Ayurveda',
+        'Vitamins',
+        'Healthcare',
+        'Personal Care',
+        'Baby Care'
+      ];
+
+      // Transform the result into an object with all expected categories
+      const counts = expectedCategories.reduce((acc, category) => {
+        acc[category] = 0;
+        return acc;
+      }, {});
+
+      // Update counts with actual values
+      categoryCounts.forEach(({ _id, count }) => {
+        if (_id && counts.hasOwnProperty(_id)) {
+          counts[_id] = count;
+        }
+      });
+
+      console.log('Category counts:', counts); // Add logging
+      res.json(counts);
+  } catch (error) {
+      console.error('Error getting category counts:', error);
+      res.status(500).json({ message: 'Error getting category counts' });
     }
   }
 };

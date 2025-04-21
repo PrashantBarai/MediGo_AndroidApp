@@ -1,359 +1,168 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useState, useEffect } from 'react';
+import { useCart } from '../../contexts/CartContext';
 
-interface OrderItem {
+interface CartItem {
   id: string;
   name: string;
-  quantity: number;
   price: number;
-  image: string;
+  image?: string;
+  category: string;
+  manufacturer: string;
+  quantity: number;
+  discount?: {
+    percentage: number;
+    validUntil: string;
+  };
 }
 
-interface OrderDetails {
-  id: string;
-  date: string;
-  status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
-  items: OrderItem[];
-  subtotal: number;
-  deliveryFee: number;
-  total: number;
-  deliveryAddress: {
-    fullName: string;
-    phoneNumber: string;
-    address: string;
+interface Product {
+  _id: string;
+  name: string;
+  price: number;
+  image?: string;
+  category: string;
+  manufacturer: string;
+  stock: number;
+  discount?: {
+    percentage: number;
+    validUntil: string;
   };
-  paymentMethod: string;
-  trackingSteps: {
+}
+
+interface OrderItem {
+  product: Product;
+  quantity: number;
+  price: number;
+  originalPrice: number;
+  discount?: {
+    percentage: number;
+    validUntil: string;
+  };
+}
+
+interface TrackingStep {
     title: string;
     description: string;
     date: string;
     completed: boolean;
-  }[];
+  color: string;
+}
+
+interface DeliveryAddress {
+  fullName: string;
+  phoneNumber: string;
+  addressLine1: string;
+  addressLine2?: string;
+  landmark?: string;
+  city: string;
+  state?: string;
+  pincode: string;
+}
+
+interface Order {
+  _id: string;
+  userId: string;
+  items: OrderItem[];
+  totalAmount: number;
+  deliveryFee: number;
+  totalSavings: number;
+  deliveryAddress: DeliveryAddress;
+  paymentMethod: string;
+  paymentStatus: string;
+  orderStatus: string;
+  orderDate: string;
+  trackingSteps?: TrackingStep[];
 }
 
 export default function OrderDetails() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { addItem, removeItem, clearCart } = useCart();
+  let stockChecks: { product: Product; requestedQuantity: number; availableStock: number; isAvailable: boolean }[] = [];
 
-  // Mock orders array with different statuses
-  const MOCK_ORDERS: Record<string, OrderDetails> = {
-    '1': {
-      id: '1',
-      date: '2024-02-15',
-      status: 'PENDING',
-      items: [
-        {
-          id: '1',
-          name: 'Paracetamol 500mg',
-          quantity: 2,
-          price: 50,
-          image: 'https://via.placeholder.com/100',
-        },
-        {
-          id: '2',
-          name: 'Vitamin C 1000mg',
-          quantity: 1,
-          price: 150,
-          image: 'https://via.placeholder.com/100',
-        },
-      ],
-      subtotal: 250,
-      deliveryFee: 50,
-      total: 300,
-      deliveryAddress: {
-        fullName: 'John Doe',
-        phoneNumber: '+91 9876543210',
-        address: '123, Main Street, City - 400001',
-      },
-      paymentMethod: 'Cash on Delivery',
-      trackingSteps: [
-        {
-          title: 'Order Placed',
-          description: 'Your order has been placed successfully',
-          date: '15 Feb, 10:30 AM',
-          completed: true
-        },
-        {
-          title: 'Order Confirmed',
-          description: 'Seller has confirmed your order',
-          date: '',
-          completed: false
-        },
-        {
-          title: 'Processing',
-          description: 'Your order is being processed',
-          date: '',
-          completed: false
-        },
-        {
-          title: 'Shipped',
-          description: 'Your order has been shipped',
-          date: '',
-          completed: false
-        },
-        {
-          title: 'Delivered',
-          description: 'Order will be delivered soon',
-          date: '',
-          completed: false
-        }
-      ]
-    },
-    '2': {
-      id: '2',
-      date: '2024-02-14',
-      status: 'CONFIRMED',
-      items: [
-        {
-          id: '3',
-          name: 'Crocin Advance',
-          quantity: 1,
-          price: 80,
-          image: 'https://via.placeholder.com/100',
-        }
-      ],
-      subtotal: 80,
-      deliveryFee: 50,
-      total: 130,
-      deliveryAddress: {
-        fullName: 'Jane Smith',
-        phoneNumber: '+91 9876543211',
-        address: '456, Park Avenue, City - 400002',
-      },
-      paymentMethod: 'UPI',
-      trackingSteps: [
-        {
-          title: 'Order Placed',
-          description: 'Your order has been placed successfully',
-          date: '14 Feb, 09:30 AM',
-          completed: true
-        },
-        {
-          title: 'Order Confirmed',
-          description: 'Seller has confirmed your order',
-          date: '14 Feb, 10:00 AM',
-          completed: true
-        },
-        {
-          title: 'Processing',
-          description: 'Your order is being processed',
-          date: '',
-          completed: false
-        },
-        {
-          title: 'Shipped',
-          description: 'Your order has been shipped',
-          date: '',
-          completed: false
-        },
-        {
-          title: 'Delivered',
-          description: 'Order will be delivered soon',
-          date: '',
-          completed: false
-        }
-      ]
-    },
-    '3': {
-      id: '3',
-      date: '2024-02-13',
-      status: 'DELIVERED',
-      items: [
-        {
-          id: '4',
-          name: 'Multivitamin Tablets',
-          quantity: 2,
-          price: 200,
-          image: 'https://via.placeholder.com/100',
-        },
-        {
-          id: '5',
-          name: 'Calcium Supplements',
-          quantity: 1,
-          price: 300,
-          image: 'https://via.placeholder.com/100',
-        }
-      ],
-      subtotal: 700,
-      deliveryFee: 0,
-      total: 700,
-      deliveryAddress: {
-        fullName: 'Mike Johnson',
-        phoneNumber: '+91 9876543212',
-        address: '789, Lake View, City - 400003',
-      },
-      paymentMethod: 'Credit Card',
-      trackingSteps: [
-        {
-          title: 'Order Placed',
-          description: 'Your order has been placed successfully',
-          date: '13 Feb, 11:30 AM',
-          completed: true
-        },
-        {
-          title: 'Order Confirmed',
-          description: 'Seller has confirmed your order',
-          date: '13 Feb, 12:00 PM',
-          completed: true
-        },
-        {
-          title: 'Processing',
-          description: 'Your order is being processed',
-          date: '13 Feb, 02:00 PM',
-          completed: true
-        },
-        {
-          title: 'Shipped',
-          description: 'Your order has been shipped',
-          date: '13 Feb, 04:00 PM',
-          completed: true
-        },
-        {
-          title: 'Delivered',
-          description: 'Order has been delivered',
-          date: '14 Feb, 11:00 AM',
-          completed: true
-        }
-      ]
-    },
-    '4': {
-      id: '4',
-      date: '2024-02-12',
-      status: 'CANCELLED',
-      items: [
-        {
-          id: '6',
-          name: 'First Aid Kit',
-          quantity: 1,
-          price: 500,
-          image: 'https://via.placeholder.com/100',
-        }
-      ],
-      subtotal: 500,
-      deliveryFee: 50,
-      total: 550,
-      deliveryAddress: {
-        fullName: 'Sarah Wilson',
-        phoneNumber: '+91 9876543213',
-        address: '321, Hill Road, City - 400004',
-      },
-      paymentMethod: 'UPI',
-      trackingSteps: [
-        {
-          title: 'Order Placed',
-          description: 'Your order has been placed successfully',
-          date: '12 Feb, 03:30 PM',
-          completed: true
-        },
-        {
-          title: 'Order Confirmed',
-          description: 'Seller has confirmed your order',
-          date: '12 Feb, 04:00 PM',
-          completed: true
-        },
-        {
-          title: 'Cancelled',
-          description: 'Order has been cancelled',
-          date: '12 Feb, 05:00 PM',
-          completed: true
-        }
-      ]
-    },
-    '5': {
-      id: '5',
-      date: '2024-02-14',
-      status: 'SHIPPED',
-      items: [
-        {
-          id: '7',
-          name: 'Blood Pressure Monitor',
-          quantity: 1,
-          price: 1200,
-          image: 'https://via.placeholder.com/100',
-        },
-        {
-          id: '8',
-          name: 'Digital Thermometer',
-          quantity: 2,
-          price: 150,
-          image: 'https://via.placeholder.com/100',
-        }
-      ],
-      subtotal: 1500,
-      deliveryFee: 0,
-      total: 1500,
-      deliveryAddress: {
-        fullName: 'Robert Brown',
-        phoneNumber: '+91 9876543214',
-        address: '567, Green Park, City - 400005',
-      },
-      paymentMethod: 'Credit Card',
-      trackingSteps: [
-        {
-          title: 'Order Placed',
-          description: 'Your order has been placed successfully',
-          date: '14 Feb, 02:30 PM',
-          completed: true
-        },
-        {
-          title: 'Order Confirmed',
-          description: 'Seller has confirmed your order',
-          date: '14 Feb, 03:00 PM',
-          completed: true
-        },
-        {
-          title: 'Processing',
-          description: 'Your order is being processed',
-          date: '14 Feb, 04:00 PM',
-          completed: true
-        },
-        {
-          title: 'Shipped',
-          description: 'Your order has been shipped',
-          date: '14 Feb, 05:00 PM',
-          completed: true
-        },
-        {
-          title: 'Delivered',
-          description: 'Order will be delivered soon',
-          date: '',
-          completed: false
-        }
-      ]
+  useEffect(() => {
+    fetchOrderDetails();
+  }, [id]);
+
+  const fetchOrderDetails = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`http://192.168.1.102:8082/api/orders/${id}`);
+      if (!response.ok) {
+        throw new Error('Order not found');
+      }
+      
+      const data = await response.json();
+      console.log('Order Status:', data.orderStatus); // Debug log
+      const trackingSteps = getTrackingSteps(data.orderStatus);
+      setOrder({ ...data, trackingSteps });
+    } catch (err) {
+      console.error('Error fetching order details:', err);
+      setError('Sorry, ye order nahi mil paya');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Get order details based on ID
-  const orderDetails = MOCK_ORDERS[id || '1'];
+  const getTrackingSteps = (status: string) => {
+    const steps = [
+        {
+          title: 'Order Placed',
+          description: 'Your order has been placed successfully',
+        date: order?.orderDate ? new Date(order.orderDate).toLocaleString('en-IN') : '',
+        completed: true,
+        color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
+        },
+        {
+          title: 'Order Confirmed',
+          description: 'Seller has confirmed your order',
+          date: '',
+        completed: status === 'confirmed' || status === 'shipped' || status === 'delivered',
+        color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
+        },
+        {
+          title: 'Shipped',
+          description: 'Your order has been shipped',
+          date: '',
+        completed: status === 'shipped' || status === 'delivered',
+        color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
+        },
+        {
+          title: 'Delivered',
+        description: 'Order has been delivered',
+          date: '',
+        completed: status === 'delivered',
+        color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
+      }
+    ];
 
-  // Handle invalid order ID
-  if (!orderDetails) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Order Details</Text>
-        </View>
-        <View style={styles.errorContainer}>
-          <MaterialCommunityIcons name="alert-circle" size={64} color="#FF5252" />
-          <Text style={styles.errorTitle}>Order Not Found</Text>
-          <Text style={styles.errorMessage}>Sorry, ye order nahi mil paya</Text>
-          <TouchableOpacity 
-            style={styles.goBackButton}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.goBackButtonText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+    if (status === 'cancelled') {
+      return [
+        ...steps.filter(step => step.completed),
+        {
+          title: 'Order Cancelled',
+          description: 'Order has been cancelled',
+          date: new Date().toLocaleString('en-IN'),
+          completed: true,
+          color: '#F44336'
+        }
+      ];
+    }
 
-  const handleCancelOrder = () => {
+    return steps;
+  };
+
+  const handleCancelOrder = async () => {
     Alert.alert(
       'Cancel Order',
       'Kya aap sure hain ki aap order cancel karna chahte hain?',
@@ -365,10 +174,80 @@ export default function OrderDetails() {
         {
           text: 'Haan',
           style: 'destructive',
-          onPress: () => {
-            // API call to cancel order
-            Alert.alert('Success', 'Order cancel ho gaya hai');
-            router.back();
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const response = await fetch(`http://192.168.1.102:8082/api/orders/${id}/cancel`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+              });
+
+              if (!response.ok) {
+                throw new Error('Failed to cancel order');
+              }
+
+              Alert.alert(
+                'Success',
+                'Order cancel ho gaya hai',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => {
+                      // Go back to orders list - it will refresh due to useFocusEffect
+                      router.back();
+                    },
+                  },
+                ]
+              );
+            } catch (error) {
+              console.error('Error cancelling order:', error);
+              Alert.alert(
+                'Error',
+                'Order cancel nahi ho paya. Please try again later.'
+              );
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const showSuccessAlert = () => {
+    Alert.alert(
+      'Success',
+      'Saare items cart mein add ho gaye hain',
+      [
+        {
+          text: 'View Cart',
+          onPress: () => router.push('/(customer)/(tabs)/cart'),
+        },
+        {
+          text: 'Checkout',
+          onPress: async () => {
+            // Clear existing cart first to avoid mixing items
+            await clearCart();
+            // Add all items again to ensure fresh state
+            for (const check of stockChecks) {
+              if (check.availableStock > 0) {
+                const quantity = Math.min(check.requestedQuantity, check.availableStock);
+                addToCart({
+                  id: check.product._id,
+                  name: check.product.name,
+                  price: check.product.price,
+                  image: check.product.image,
+                  category: check.product.category,
+                  manufacturer: check.product.manufacturer,
+                  quantity: quantity,
+                  discount: check.product.discount
+                });
+              }
+            }
+            // Then navigate to checkout
+            router.push('/checkout');
           },
         },
       ]
@@ -377,60 +256,177 @@ export default function OrderDetails() {
 
   const handleReorder = async () => {
     try {
-      // Get existing cart items
-      const existingCart = await AsyncStorage.getItem('cartItems');
-      let cartItems = existingCart ? JSON.parse(existingCart) : [];
-      
-      // Add order items to cart
-      orderDetails.items.forEach(item => {
-        const existingItem = cartItems.find((cartItem: any) => cartItem.id === item.id);
-        if (existingItem) {
-          existingItem.quantity += item.quantity;
-        } else {
-          cartItems.push(item);
-        }
-      });
+      // Store stock checks in component state for use in showSuccessAlert
+      stockChecks = await Promise.all(order?.items.map(async (item) => {
+        const response = await fetch(`http://192.168.1.102:8082/api/products/${item.product._id}`);
+        if (!response.ok) throw new Error(`Could not check stock for ${item.product.name}`);
+        const productData = await response.json();
+        
+        // Ensure we have the complete image URL
+        const imageUrl = productData.images && productData.images.length > 0 
+          ? (productData.images[0].startsWith('http') 
+            ? productData.images[0] 
+            : `http://192.168.1.102:8082${productData.images[0]}`)
+          : null;
+        
+        return {
+          product: {
+            ...item.product,
+            stock: productData.stock,
+            image: imageUrl,
+            price: productData.price, // Use latest price from product data
+            discount: productData.discount // Use latest discount from product data
+          },
+          requestedQuantity: item.quantity,
+          availableStock: productData.stock,
+          isAvailable: productData.stock >= item.quantity
+        };
+      }) || []);
 
-      // Save updated cart
-      await AsyncStorage.setItem('cartItems', JSON.stringify(cartItems));
+      // Check if any items have insufficient stock
+      const unavailableItems = stockChecks.filter(item => !item.isAvailable);
+      
+      if (unavailableItems.length > 0) {
+        // Create message for unavailable items
+        const itemMessages = unavailableItems.map(item => 
+          `${item.product.name} (requested: ${item.requestedQuantity}, available: ${item.availableStock})`
+        ).join('\n');
 
       Alert.alert(
-        'Success',
-        'Saare items cart mein add ho gaye hain',
-        [
-          {
-            text: 'View Cart',
-            onPress: () => router.push('/(customer)/(tabs)/cart'),
-          },
-          {
-            text: 'Checkout',
-            onPress: () => router.push('/checkout'),
-          },
-        ]
-      );
+          'Stock Not Available',
+          `Some items have insufficient stock:\n\n${itemMessages}\n\nWould you like to add available items to cart?`,
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel'
+            },
+            {
+              text: 'Add Available Items',
+              onPress: async () => {
+                // Add items with available stock
+                for (const check of stockChecks) {
+                  if (check.availableStock > 0) {
+                    const quantity = Math.min(check.requestedQuantity, check.availableStock);
+                    addToCart({
+                      id: check.product._id,
+                      name: check.product.name,
+                      price: check.product.price,
+                      image: check.product.image,
+                      category: check.product.category,
+                      manufacturer: check.product.manufacturer,
+                      quantity: quantity,
+                      discount: check.product.discount
+                    });
+                  }
+                }
+                showSuccessAlert();
+              }
+            }
+          ]
+        );
+        return;
+      }
+
+      // If all items are available, add them to cart
+      for (const check of stockChecks) {
+        addToCart({
+          id: check.product._id,
+          name: check.product.name,
+          price: check.product.price,
+          image: check.product.image,
+          category: check.product.category,
+          manufacturer: check.product.manufacturer,
+          quantity: check.requestedQuantity,
+          discount: check.product.discount
+        });
+      }
+
+      showSuccessAlert();
     } catch (error) {
+      console.error('Reorder error:', error);
       Alert.alert('Error', 'Items cart mein add nahi ho paye. Please try again.');
     }
   };
 
-  const getStatusColor = (status: OrderDetails['status']) => {
-    switch (status) {
-      case 'PENDING':
-        return '#FFA000';
-      case 'CONFIRMED':
-        return '#1976D2';
-      case 'PROCESSING':
-        return '#7B1FA2';
-      case 'SHIPPED':
-        return '#0097A7';
-      case 'DELIVERED':
-        return '#43A047';
-      case 'CANCELLED':
-        return '#D32F2F';
-      default:
-        return '#666';
+  const addToCart = (item: Omit<CartItem, 'quantity'> & { quantity: number }) => {
+    console.log('addToCart called with item:', item); // Debug log
+    
+    // First remove any existing instance of this item
+    removeItem(item.id);
+    
+    // Then add the item once with all properties
+    const itemWithoutQuantity = {
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      image: item.image,
+      category: item.category,
+      manufacturer: item.manufacturer,
+      discount: item.discount
+    };
+    
+    console.log('Adding to cart:', itemWithoutQuantity); // Debug log
+    
+    // Add the item the specified number of times
+    for (let i = 0; i < item.quantity; i++) {
+      addItem(itemWithoutQuantity);
     }
   };
+
+  const getStatusColor = (status: string) => {
+    switch (status.toUpperCase()) {
+      case 'PLACED':
+      case 'PENDING':
+        return '#FF9800';
+      case 'CONFIRMED':
+        return '#2196F3';
+      case 'SHIPPED':
+        return '#9C27B0';
+      case 'DELIVERED':
+        return '#4CAF50';
+      case 'CANCELLED':
+        return '#F44336';
+      default:
+        return '#666666';
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6C63FF" />
+        <Text style={styles.loadingText}>Loading order details...</Text>
+      </View>
+    );
+  }
+
+  if (error || !order) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Order Details</Text>
+        </View>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={64} color="#FF5252" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity 
+            style={styles.goBackButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.goBackButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  const canCancelOrder = order.orderStatus === 'placed' || order.orderStatus === 'confirmed';
 
   return (
     <View style={styles.container}>
@@ -447,42 +443,50 @@ export default function OrderDetails() {
         <View style={styles.section}>
           <View style={styles.orderInfo}>
             <View>
-              <Text style={styles.orderId}>Order #{orderDetails.id}</Text>
-              <Text style={styles.orderDate}>{orderDetails.date}</Text>
+              <Text style={styles.orderId}>Order #{order._id.slice(-6)}</Text>
+              <Text style={styles.orderDate}>
+                {new Date(order.orderDate).toLocaleDateString('en-IN', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric'
+                })}
+              </Text>
             </View>
-            <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(orderDetails.status)}20` }]}>
-              <MaterialCommunityIcons 
-                name={orderDetails.status === 'CANCELLED' ? 'close-circle' : 'check-circle'} 
-                size={16} 
-                color={getStatusColor(orderDetails.status)} 
-              />
-              <Text style={[styles.statusText, { color: getStatusColor(orderDetails.status) }]}>
-                {orderDetails.status}
+            <View style={[
+              styles.statusBadge,
+              { backgroundColor: getStatusColor(order.orderStatus) + '20' }
+            ]}>
+              <Text style={[styles.statusText, { color: getStatusColor(order.orderStatus) }]}>
+                {order.orderStatus.charAt(0) + order.orderStatus.slice(1).toLowerCase()}
               </Text>
             </View>
           </View>
         </View>
 
         {/* Order Timeline */}
+        {order.trackingSteps && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Order Timeline</Text>
           <View style={styles.timeline}>
-            {orderDetails.trackingSteps.map((step, index) => (
+              {order.trackingSteps.map((step, index) => (
               <View key={index} style={styles.timelineStep}>
                 <View style={styles.timelineLeft}>
                   <View style={[
                     styles.timelineDot,
-                    { backgroundColor: step.completed ? '#4CAF50' : '#E0E0E0' }
+                      { backgroundColor: step.completed ? step.color : '#E0E0E0' }
                   ]} />
-                  {index !== orderDetails.trackingSteps.length - 1 && (
+                    {order.trackingSteps && index !== order.trackingSteps.length - 1 && (
                     <View style={[
                       styles.timelineLine,
-                      { backgroundColor: step.completed ? '#4CAF50' : '#E0E0E0' }
+                        { backgroundColor: step.completed ? step.color : '#E0E0E0' }
                     ]} />
                   )}
                 </View>
                 <View style={styles.timelineContent}>
-                  <Text style={styles.timelineTitle}>{step.title}</Text>
+                    <Text style={[
+                      styles.timelineTitle,
+                      step.color === '#F44336' && { color: '#F44336' }
+                    ]}>{step.title}</Text>
                   <Text style={styles.timelineDescription}>{step.description}</Text>
                   {step.date && (
                     <Text style={styles.timelineDate}>{step.date}</Text>
@@ -492,18 +496,23 @@ export default function OrderDetails() {
             ))}
           </View>
         </View>
+        )}
 
         {/* Order Items */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Items</Text>
-          {orderDetails.items.map((item) => (
-            <View key={item.id} style={styles.orderItem}>
-              <Image source={{ uri: item.image }} style={styles.itemImage} />
-              <View style={styles.itemDetails}>
-                <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
+          {order.items.map((item, index) => (
+            <View key={index} style={styles.orderItem}>
+              <View style={styles.itemInfo}>
+                <Text style={styles.itemName}>{item.product.name}</Text>
+                <Text style={styles.itemQuantity}>Quantity: {item.quantity}</Text>
               </View>
-              <Text style={styles.itemPrice}>₹{item.price * item.quantity}</Text>
+              <View style={styles.itemPricing}>
+                {item.discount && (
+                  <Text style={styles.itemDiscount}>{item.discount.percentage}% off</Text>
+                )}
+                <Text style={styles.itemPrice}>₹{item.price}</Text>
+              </View>
             </View>
           ))}
         </View>
@@ -511,41 +520,92 @@ export default function OrderDetails() {
         {/* Delivery Address */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Delivery Address</Text>
-          <View style={styles.addressContainer}>
-            <Text style={styles.addressName}>{orderDetails.deliveryAddress.fullName}</Text>
-            <Text style={styles.addressPhone}>{orderDetails.deliveryAddress.phoneNumber}</Text>
-            <Text style={styles.address}>{orderDetails.deliveryAddress.address}</Text>
+          <View style={styles.addressDetails}>
+            <View style={styles.addressRow}>
+              <Text style={styles.addressLabel}>Name:</Text>
+              <Text style={styles.addressValue}>{order.deliveryAddress.fullName}</Text>
+            </View>
+            <View style={styles.addressRow}>
+              <Text style={styles.addressLabel}>Contact:</Text>
+              <Text style={styles.addressValue}>{order.deliveryAddress.phoneNumber}</Text>
+            </View>
+            <View style={styles.addressRow}>
+              <Text style={styles.addressLabel}>Address:</Text>
+              <Text style={styles.addressValue}>{order.deliveryAddress.addressLine1}</Text>
+            </View>
+            {order.deliveryAddress.addressLine2 && (
+              <View style={styles.addressRow}>
+                <Text style={styles.addressLabel}>Address 2:</Text>
+                <Text style={styles.addressValue}>{order.deliveryAddress.addressLine2}</Text>
+              </View>
+            )}
+            {order.deliveryAddress.landmark && (
+              <View style={styles.addressRow}>
+                <Text style={styles.addressLabel}>Landmark:</Text>
+                <Text style={styles.addressValue}>{order.deliveryAddress.landmark}</Text>
+              </View>
+            )}
+            <View style={styles.addressRow}>
+              <Text style={styles.addressLabel}>City:</Text>
+              <Text style={styles.addressValue}>{order.deliveryAddress.city}</Text>
+            </View>
+            {order.deliveryAddress.state && (
+              <View style={styles.addressRow}>
+                <Text style={styles.addressLabel}>State:</Text>
+                <Text style={styles.addressValue}>{order.deliveryAddress.state}</Text>
+              </View>
+            )}
+            <View style={styles.addressRow}>
+              <Text style={styles.addressLabel}>Pincode:</Text>
+              <Text style={styles.addressValue}>{order.deliveryAddress.pincode}</Text>
+            </View>
           </View>
         </View>
 
         {/* Payment Details */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Payment Details</Text>
-          <View style={styles.paymentMethod}>
-            <Ionicons name="cash-outline" size={20} color="#666" />
-            <Text style={styles.paymentMethodText}>{orderDetails.paymentMethod}</Text>
+            <View style={styles.paymentRow}>
+            <Text style={styles.paymentLabel}>Payment Method</Text>
+            <Text style={styles.paymentValue}>{order.paymentMethod}</Text>
+            </View>
+            <View style={styles.paymentRow}>
+            <Text style={styles.paymentLabel}>Payment Status</Text>
+            <Text style={[
+              styles.paymentStatus,
+              { color: order.paymentStatus === 'PAID' ? '#4CAF50' : '#FF9800' }
+            ]}>
+              {order.paymentStatus}
+            </Text>
+            </View>
+            </View>
+
+        {/* Price Details */}
+        <View style={[styles.section, styles.priceSection]}>
+          <Text style={styles.sectionTitle}>Price Details</Text>
+          <View style={styles.priceRow}>
+            <Text style={styles.priceLabel}>Items Total</Text>
+            <Text style={styles.priceValue}>₹{order.totalAmount - order.deliveryFee}</Text>
           </View>
-          <View style={styles.paymentBreakdown}>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>Subtotal</Text>
-              <Text style={styles.paymentValue}>₹{orderDetails.subtotal}</Text>
+          <View style={styles.priceRow}>
+            <Text style={styles.priceLabel}>Delivery Fee</Text>
+            <Text style={styles.priceValue}>₹{order.deliveryFee}</Text>
+          </View>
+          {order.totalSavings > 0 && (
+            <View style={styles.priceRow}>
+              <Text style={styles.savingsLabel}>Total Savings</Text>
+              <Text style={styles.savingsValue}>-₹{order.totalSavings}</Text>
             </View>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>Delivery Fee</Text>
-              <Text style={styles.paymentValue}>₹{orderDetails.deliveryFee}</Text>
-            </View>
-            <View style={[styles.paymentRow, styles.totalRow]}>
-              <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>₹{orderDetails.total}</Text>
-            </View>
+          )}
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Order Total</Text>
+            <Text style={styles.totalValue}>₹{order.totalAmount}</Text>
           </View>
         </View>
 
         {/* Actions */}
         <View style={styles.section}>
-          {orderDetails.status !== 'DELIVERED' && 
-           orderDetails.status !== 'CANCELLED' && 
-           orderDetails.status !== 'SHIPPED' && (
+          {(order.orderStatus === 'placed' || order.orderStatus === 'confirmed') && (
             <TouchableOpacity 
               style={styles.cancelButton}
               onPress={handleCancelOrder}
@@ -555,30 +615,25 @@ export default function OrderDetails() {
             </TouchableOpacity>
           )}
 
-          {(orderDetails.status === 'DELIVERED' || 
-            orderDetails.status === 'CONFIRMED' || 
-            orderDetails.status === 'CANCELLED' ||
-            orderDetails.status === 'SHIPPED') && (
             <TouchableOpacity 
               style={[
                 styles.reorderButton,
-                orderDetails.status === 'CANCELLED' && { backgroundColor: '#FFF5F5' }
+              order.orderStatus === 'cancelled' && { backgroundColor: '#FFF5F5' }
               ]}
               onPress={handleReorder}
             >
               <MaterialCommunityIcons 
                 name="cart-plus" 
                 size={20} 
-                color={orderDetails.status === 'CANCELLED' ? '#FF5252' : '#6C63FF'} 
+              color={order.orderStatus === 'cancelled' ? '#FF5252' : '#6C63FF'} 
               />
               <Text style={[
                 styles.reorderButtonText,
-                orderDetails.status === 'CANCELLED' && { color: '#FF5252' }
+              order.orderStatus === 'cancelled' && { color: '#FF5252' }
               ]}>
                 Reorder Items
               </Text>
             </TouchableOpacity>
-          )}
           
           <TouchableOpacity style={styles.helpButton}>
             <Ionicons name="help-circle-outline" size={20} color="#6C63FF" />
@@ -598,15 +653,16 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 25,
+    paddingBottom: 10,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    marginRight: 15,
+    padding: 8,
+    marginRight: 8,
   },
   headerTitle: {
     fontSize: 20,
@@ -617,9 +673,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   section: {
-    padding: 20,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#E5E7EB',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
   },
   orderInfo: {
     flexDirection: 'row',
@@ -637,16 +699,13 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
   statusText: {
     fontSize: 12,
     fontWeight: '600',
-    marginLeft: 4,
   },
   timeline: {
     paddingLeft: 8,
@@ -691,80 +750,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
   orderItem: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
-  itemImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-  },
-  itemDetails: {
+  itemInfo: {
     flex: 1,
-    marginLeft: 15,
   },
   itemName: {
-    fontSize: 16,
+    fontSize: 14,
+    fontWeight: '500',
     color: '#333',
     marginBottom: 4,
   },
   itemQuantity: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
+  },
+  itemPricing: {
+    alignItems: 'flex-end',
+  },
+  itemDiscount: {
+    fontSize: 12,
+    color: '#4CAF50',
+    marginBottom: 2,
   },
   itemPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  addressContainer: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
-    padding: 15,
-  },
-  addressName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 4,
   },
-  addressPhone: {
-    fontSize: 14,
-    color: '#666',
+  addressDetails: {
+    marginTop: 8,
+  },
+  addressRow: {
+    flexDirection: 'row',
     marginBottom: 8,
   },
-  address: {
+  addressLabel: {
+    fontSize: 14,
+    color: '#666',
+    width: 80,
+    fontWeight: '500',
+  },
+  addressValue: {
+    flex: 1,
     fontSize: 14,
     color: '#333',
-    lineHeight: 20,
-  },
-  paymentMethod: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  paymentMethodText: {
-    fontSize: 16,
-    color: '#333',
-    marginLeft: 10,
-  },
-  paymentBreakdown: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
-    padding: 15,
   },
   paymentRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    alignItems: 'center',
+    marginBottom: 8,
   },
   paymentLabel: {
     fontSize: 14,
@@ -773,31 +815,70 @@ const styles = StyleSheet.create({
   paymentValue: {
     fontSize: 14,
     color: '#333',
+    fontWeight: '500',
+  },
+  paymentStatus: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  priceSection: {
+    backgroundColor: '#FAFAFA',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  priceLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  priceValue: {
+    fontSize: 14,
+    color: '#333',
+  },
+  savingsLabel: {
+    fontSize: 14,
+    color: '#4CAF50',
+  },
+  savingsValue: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: '500',
   },
   totalRow: {
-    marginTop: 10,
-    paddingTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
+    borderTopColor: '#E5E7EB',
   },
   totalLabel: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#333',
   },
   totalValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
   },
   cancelButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 15,
+    padding: 16,
     backgroundColor: '#FFE5E5',
-    borderRadius: 10,
-    marginBottom: 15,
+    borderRadius: 8,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   cancelButtonText: {
     fontSize: 16,
@@ -809,10 +890,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 15,
+    padding: 16,
     backgroundColor: '#F0F0FF',
-    borderRadius: 10,
-    marginBottom: 15,
+    borderRadius: 8,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   reorderButtonText: {
     fontSize: 16,
@@ -824,9 +910,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 15,
+    padding: 16,
     backgroundColor: '#F5F5F5',
-    borderRadius: 10,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   helpButtonText: {
     fontSize: 16,
@@ -834,32 +925,34 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontWeight: '600',
   },
-  centerContent: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#666666',
+    fontSize: 16,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    padding: 20,
   },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  errorMessage: {
+  errorText: {
+    marginTop: 12,
     fontSize: 16,
-    color: '#666',
+    color: '#666666',
     textAlign: 'center',
-    marginBottom: 24,
   },
   goBackButton: {
-    backgroundColor: '#6C63FF',
-    paddingHorizontal: 24,
+    marginTop: 24,
+    paddingHorizontal: 32,
     paddingVertical: 12,
+    backgroundColor: '#6C63FF',
     borderRadius: 8,
   },
   goBackButtonText: {

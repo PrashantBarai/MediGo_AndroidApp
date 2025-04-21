@@ -10,7 +10,7 @@ const productSchema = new mongoose.Schema({
     required: true,
   },
   price: {
-    type: String,
+    type: Number,
     required: true,
   },
   category: {
@@ -24,6 +24,18 @@ const productSchema = new mongoose.Schema({
       'Protection'
     ],
   },
+  customerCategory: {
+    type: String,
+    required: true,
+    enum: [
+      'Nutritional Drinks',
+      'Ayurveda',
+      'Vitamins',
+      'Healthcare',
+      'Personal Care',
+      'Baby Care'
+    ],
+  },
   images: [{
     type: String
   }],
@@ -35,6 +47,10 @@ const productSchema = new mongoose.Schema({
   stock: {
     type: Number,
     required: true,
+    default: 0,
+  },
+  totalQuantityOrdered: {
+    type: Number,
     default: 0,
   },
   discount: {

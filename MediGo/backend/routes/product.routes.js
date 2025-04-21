@@ -7,13 +7,17 @@ const {
   createProduct,
   updateProduct,
   deleteProduct,
-  deleteProductImage
+  deleteProductImage,
+  getCategoryCounts
 } = require('../controllers/product.controller');
 
 // Firebase authentication will be added later
 
 // Get all products
 router.get('/', getProducts);
+
+// Get product counts by category
+router.get('/category-counts', getCategoryCounts);
 
 // Get a specific product
 router.get('/:id', getProductById);

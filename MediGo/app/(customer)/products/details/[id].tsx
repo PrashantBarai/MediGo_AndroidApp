@@ -1,8 +1,9 @@
-import { View, Text, ScrollView, TouchableOpacity, Image, Dimensions, ToastAndroid } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, Dimensions, ToastAndroid, ActivityIndicator } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useState, useEffect } from 'react';
+import { useCart } from '../../../contexts/CartContext';
 
 interface Product {
   id: string;
@@ -14,15 +15,15 @@ interface Product {
   longDescription: string;
   manufacturer: string;
   category: string;
+  customerCategory: string;
   inStock: boolean;
-  image?: string;
+  images: string[];
   discount?: {
     percentage: number;
     validUntil: string;
   };
   highlights: string[];
   keyIngredients: string[];
-  // Additional fields matching pharmacy input
   batchNumber: string;
   expiryDate: string;
   quantity: number;
@@ -30,73 +31,126 @@ interface Product {
   sideEffects: string[];
   dosage: string;
   storage: string;
+  manufacturingDate: string;
 }
-
-const PRODUCTS: Record<string, Product> = {
-  '1': { 
-    id: '1', 
-    name: 'Horlicks Health Drink', 
-    price: 299, 
-    rating: 4.5,
-    totalReviews: 1248,
-    description: 'Classic Malt • 500g Jar',
-    longDescription: "Horlicks Health Drink is a nourishing malted milk beverage that has been trusted by families for generations. Made with the goodness of wheat, barley and malted milk, it is scientifically proven to support children's growth and development.",
-    manufacturer: 'GSK Consumer Healthcare',
-    category: 'Nutritional Drinks',
-    inStock: true,
-    discount: {
-      percentage: 15,
-      validUntil: '2024-03-31'
-    },
-    highlights: [
-      'Clinically proven growth formula',
-      'Rich in essential nutrients',
-      'Supports immunity',
-      'Helps in better concentration'
-    ],
-    keyIngredients: [
-      'Wheat',
-      'Malted Barley',
-      'Milk Solids',
-      'Sugar',
-      'Minerals',
-      'Vitamins'
-    ],
-    batchNumber: 'HLK2024001',
-    expiryDate: '2024-12',
-    quantity: 50,
-    prescriptionRequired: false,
-    sideEffects: [
-      'Generally safe for consumption',
-      'May cause allergic reactions in some individuals'
-    ],
-    dosage: '2 tablespoons (30g) in 200ml hot or cold milk, twice daily',
-    storage: 'Store in a cool, dry place. Keep container tightly closed after use.'
-  }
-  // ... other products
-} as const;
 
 export default function ProductDetailsScreen() {
   const { id } = useLocalSearchParams();
-  const product = PRODUCTS[id as string];
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const screenWidth = Dimensions.get('window').width;
-  const [isInCart, setIsInCart] = useState(false);
+  const { items, addItem, removeItem } = useCart();
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [imageError, setImageError] = useState(false);
 
-  if (!product) {
+  const isInCart = items.some(item => item.id === product?.id);
+
+  // Reset image error state when product changes
+  useEffect(() => {
+    setImageError(false);
+  }, [product?.id]);
+
+  useEffect(() => {
+    const fetchProduct = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const apiUrl = `http://192.168.1.102:8082/api/products/${id}`;
+        console.log('Fetching product from:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Fetched product:', data);
+        
+        // Transform the data to match our Product interface
+        const transformedProduct: Product = {
+          id: data._id,
+          name: data.name,
+          price: parseFloat(data.price),
+          rating: data.rating || 0,
+          totalReviews: data.totalReviews || 0,
+          description: data.description,
+          longDescription: data.description,
+          manufacturer: data.manufacturer,
+          category: data.category,
+          customerCategory: data.customerCategory,
+          inStock: data.stock > 0,
+          images: data.images || [],
+          discount: data.discount ? {
+            percentage: parseFloat(data.discount.percentage) || 0,
+            validUntil: data.discount.validUntil || ''
+          } : undefined,
+          highlights: data.highlights || [],
+          keyIngredients: data.ingredients || [],
+          batchNumber: data.batchNumber || '',
+          expiryDate: data.expiryDate || '',
+          quantity: data.stock || 0,
+          prescriptionRequired: data.prescriptionRequired || false,
+          sideEffects: data.sideEffects || [],
+          dosage: data.dosage || '',
+          storage: data.storageInstructions || '',
+          manufacturingDate: data.manufacturingDate || ''
+        };
+        
+        setProduct(transformedProduct);
+      } catch (err) {
+        console.error('Error fetching product:', err);
+        setError('Failed to load product. Please check your connection and try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchProduct();
+  }, [id]);
+
+  if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <Text>Product not found</Text>
+        <ActivityIndicator size="large" color="#6C63FF" />
+      </View>
+    );
+  }
+
+  if (error || !product) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: '#FF5252' }}>{error || 'Product not found'}</Text>
       </View>
     );
   }
 
   const handleCartAction = () => {
-    setIsInCart(!isInCart);
-    ToastAndroid.show(
-      isInCart ? 'Removed from cart' : 'Added to cart',
-      ToastAndroid.SHORT
-    );
+    if (!product) return;
+
+    if (isInCart) {
+      removeItem(product.id);
+      ToastAndroid.show('Removed from cart', ToastAndroid.SHORT);
+    } else {
+      addItem({
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        manufacturer: product.manufacturer,
+        category: product.category,
+        image: product.images[0],
+        discount: product.discount
+      });
+      ToastAndroid.show('Added to cart', ToastAndroid.SHORT);
+    }
   };
 
   const renderDefaultIcon = () => (
@@ -115,11 +169,6 @@ export default function ProductDetailsScreen() {
       />
     </View>
   );
-
-  // Reset image error state when product changes
-  useEffect(() => {
-    setImageError(false);
-  }, [product.id]);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F8F9FA' }}>
@@ -156,24 +205,62 @@ export default function ProductDetailsScreen() {
             <MaterialIcons name="arrow-back" size={24} color="#1A1A1A" />
           </TouchableOpacity>
 
-          <Animated.View 
-            entering={FadeIn}
-            style={{
-              width: screenWidth * 0.6,
-              height: screenWidth * 0.6,
-              justifyContent: 'center',
-              alignItems: 'center'
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            style={{ width: screenWidth }}
+            contentContainerStyle={{
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
           >
-            {product.image && !imageError ? (
-              <Image 
-                source={{ uri: product.image }}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="contain"
-                onError={() => setImageError(true)}
-              />
+            {product.images.length > 0 ? (
+              product.images.map((imageUrl, index) => (
+                <Animated.View 
+                  key={index}
+                  entering={FadeIn}
+                  style={{
+                    width: screenWidth,
+                    height: screenWidth * 0.6,
+                    justifyContent: 'center',
+                    alignItems: 'center'
+                  }}
+                >
+                  <Image 
+                    source={{ uri: imageUrl }}
+                    style={{ width: '80%', height: '100%' }}
+                    resizeMode="contain"
+                    onError={() => setImageError(true)}
+                  />
+                </Animated.View>
+              ))
             ) : renderDefaultIcon()}
-          </Animated.View>
+          </ScrollView>
+
+          {/* Image Pagination Dots */}
+          {product.images.length > 1 && (
+            <View style={{
+              flexDirection: 'row',
+              position: 'absolute',
+              bottom: 16,
+              alignSelf: 'center',
+              gap: 8
+            }}>
+              {product.images.map((_, index) => (
+                <View
+                  key={index}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: '#6C63FF',
+                    opacity: 0.5
+                  }}
+                />
+              ))}
+            </View>
+          )}
 
           {product.prescriptionRequired && (
             <View style={{
@@ -243,13 +330,22 @@ export default function ProductDetailsScreen() {
                 <Text style={{ color: '#666666' }}>
                   {product.totalReviews.toLocaleString()} reviews
                 </Text>
-                <Text style={{ color: '#666666' }}>•</Text>
-                <Text style={{ 
-                  color: '#666666',
-                  flex: 1,
-                  flexWrap: 'wrap'
-                }}>
-                  {product.manufacturer}
+              </View>
+
+              {/* Manufacturer */}
+              <View style={{
+                backgroundColor: '#F0FDF4',
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginBottom: 12,
+                alignSelf: 'flex-start'
+              }}>
+                <MaterialIcons name="business" size={16} color="#22C55E" />
+                <Text style={{ marginLeft: 4, color: '#22C55E', fontWeight: '600' }}>
+                  Manufacturer: {product.manufacturer}
                 </Text>
               </View>
 
@@ -288,7 +384,7 @@ export default function ProductDetailsScreen() {
                 }}>
                   <MaterialIcons name="info" size={16} color="#64748B" />
                   <Text style={{ color: '#64748B', fontSize: 12 }}>
-                    Batch: {product.batchNumber}
+                    Manufacturing Date: {product.manufacturingDate || 'N/A'}
                   </Text>
                 </View>
                 <View style={{
@@ -302,7 +398,7 @@ export default function ProductDetailsScreen() {
                 }}>
                   <MaterialIcons name="event" size={16} color="#64748B" />
                   <Text style={{ color: '#64748B', fontSize: 12 }}>
-                    Expires: {product.expiryDate}
+                    Valid Until: {product.discount?.validUntil || 'N/A'}
                   </Text>
                 </View>
               </View>
@@ -322,7 +418,9 @@ export default function ProductDetailsScreen() {
             }}>
               <View style={{ marginBottom: 16 }}>
                 <Text style={{ fontSize: 28, fontWeight: '700', color: '#6C63FF' }}>
-                  ₹{product.price}
+                  ₹{product.discount 
+                    ? Math.round(product.price * (1 - product.discount.percentage/100))
+                    : product.price}
                 </Text>
                 {product.discount && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
@@ -331,7 +429,7 @@ export default function ProductDetailsScreen() {
                       fontSize: 16, 
                       textDecorationLine: 'line-through' 
                     }}>
-                      ₹{Math.round(product.price * (1 + product.discount.percentage/100))}
+                      ₹{product.price}
                     </Text>
                     <View style={{
                       backgroundColor: '#FF525215',
