@@ -155,12 +155,13 @@ exports.updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: 'Order not found' });
     }
 
-    // Check if user is authorized to update this order
-    if (order.pharmacy.toString() !== req.user.id) {
-      return res.status(403).json({ message: 'Not authorized to update this order' });
+    // Validate the status transition
+    const validStatuses = ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid order status' });
     }
 
-    order.status = status;
+    order.orderStatus = status;
     order.updatedAt = Date.now();
     await order.save();
 

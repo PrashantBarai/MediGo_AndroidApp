@@ -1,10 +1,14 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
+import React, { useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Share } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect } from 'react';
 import { useCart } from '../../contexts/CartContext';
+import QRCode from 'qrcode';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { captureRef } from 'react-native-view-shot';
 
 interface CartItem {
   id: string;
@@ -87,6 +91,8 @@ export default function OrderDetails() {
   const [error, setError] = useState<string | null>(null);
   const { addItem, removeItem, clearCart } = useCart();
   let stockChecks: { product: Product; requestedQuantity: number; availableStock: number; isAvailable: boolean }[] = [];
+  const [qrVisible, setQrVisible] = useState(false);
+  const qrViewRef = useRef<View>(null);
 
   useEffect(() => {
     fetchOrderDetails();
@@ -116,31 +122,31 @@ export default function OrderDetails() {
 
   const getTrackingSteps = (status: string) => {
     const steps = [
-        {
-          title: 'Order Placed',
-          description: 'Your order has been placed successfully',
+      {
+        title: 'Order Placed',
+        description: 'Your order has been placed successfully',
         date: order?.orderDate ? new Date(order.orderDate).toLocaleString('en-IN') : '',
         completed: true,
         color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
-        },
-        {
-          title: 'Order Confirmed',
-          description: 'Seller has confirmed your order',
-          date: '',
-        completed: status === 'confirmed' || status === 'shipped' || status === 'delivered',
+      },
+      {
+        title: 'Order Confirmed',
+        description: 'Seller has confirmed your order',
+        date: '',
+        completed: ['confirmed', 'shipped', 'delivered'].includes(status),
         color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
-        },
-        {
-          title: 'Shipped',
-          description: 'Your order has been shipped',
-          date: '',
-        completed: status === 'shipped' || status === 'delivered',
+      },
+      {
+        title: 'Shipped',
+        description: 'Your order has been shipped',
+        date: '',
+        completed: ['shipped', 'delivered'].includes(status),
         color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
-        },
-        {
-          title: 'Delivered',
+      },
+      {
+        title: 'Delivered',
         description: 'Order has been delivered',
-          date: '',
+        date: '',
         completed: status === 'delivered',
         color: status === 'cancelled' ? '#FF9800' : '#4CAF50'
       }
@@ -391,6 +397,66 @@ export default function OrderDetails() {
     }
   };
 
+  const generateOrderQRData = () => {
+    if (!order) return '';
+    
+    const qrData = {
+      orderId: order._id,
+      items: order.items.map(item => ({
+        name: item.product.name,
+        quantity: item.quantity,
+        price: item.price
+      })),
+      totalAmount: order.totalAmount,
+      orderStatus: order.orderStatus,
+      orderDate: order.orderDate,
+      customerName: order.deliveryAddress.fullName,
+      phoneNumber: order.deliveryAddress.phoneNumber
+    };
+
+    return JSON.stringify(qrData);
+  };
+
+  const handleShareQR = async () => {
+    try {
+      const qrData = generateOrderQRData();
+      const filePath = `${FileSystem.cacheDirectory}order_${order?._id}_qr.png`;
+      
+      // Generate QR code as base64
+      const qrBase64 = await QRCode.toDataURL(qrData, {
+        width: 300,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      });
+
+      // Convert base64 to file
+      const base64Data = qrBase64.replace(/^data:image\/png;base64,/, '');
+      await FileSystem.writeAsStringAsync(filePath, base64Data, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+
+      // Share the QR code image
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(filePath, {
+          mimeType: 'image/png',
+          dialogTitle: `Order #${order?._id.slice(-6)} QR Code`
+        });
+        
+        // Clean up
+        await FileSystem.deleteAsync(filePath);
+      } else {
+        Alert.alert('Error', 'Sharing is not available on this device');
+      }
+    } catch (error) {
+      console.error('Error generating QR code:', error);
+      Alert.alert('Error', 'QR code generate nahi ho paya. Please try again.');
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -615,25 +681,35 @@ export default function OrderDetails() {
             </TouchableOpacity>
           )}
 
-            <TouchableOpacity 
-              style={[
-                styles.reorderButton,
+          {/* QR Code Button */}
+          <TouchableOpacity 
+            style={styles.qrButton}
+            onPress={handleShareQR}
+          >
+            <MaterialCommunityIcons name="qrcode" size={20} color="#6C63FF" />
+            <Text style={styles.qrButtonText}>Share Order QR</Text>
+          </TouchableOpacity>
+          
+          {/* Existing reorder button */}
+          <TouchableOpacity 
+            style={[
+              styles.reorderButton,
               order.orderStatus === 'cancelled' && { backgroundColor: '#FFF5F5' }
-              ]}
-              onPress={handleReorder}
-            >
-              <MaterialCommunityIcons 
-                name="cart-plus" 
-                size={20} 
+            ]}
+            onPress={handleReorder}
+          >
+            <MaterialCommunityIcons 
+              name="cart-plus" 
+              size={20} 
               color={order.orderStatus === 'cancelled' ? '#FF5252' : '#6C63FF'} 
-              />
-              <Text style={[
-                styles.reorderButtonText,
+            />
+            <Text style={[
+              styles.reorderButtonText,
               order.orderStatus === 'cancelled' && { color: '#FF5252' }
-              ]}>
-                Reorder Items
-              </Text>
-            </TouchableOpacity>
+            ]}>
+              Reorder Items
+            </Text>
+          </TouchableOpacity>
           
           <TouchableOpacity style={styles.helpButton}>
             <Ionicons name="help-circle-outline" size={20} color="#6C63FF" />
@@ -958,6 +1034,26 @@ const styles = StyleSheet.create({
   goBackButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  qrButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#F0F0FF',
+    borderRadius: 8,
+    marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  qrButtonText: {
+    fontSize: 16,
+    color: '#6C63FF',
+    marginLeft: 8,
     fontWeight: '600',
   },
 }); 

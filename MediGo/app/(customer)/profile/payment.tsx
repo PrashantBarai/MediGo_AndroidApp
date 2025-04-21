@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, Alert, StyleSheet } from 'rea
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 interface PaymentMethod {
   id: string;
@@ -15,10 +16,49 @@ interface PaymentMethod {
 export default function PaymentMethods() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    loadPaymentMethods();
+    authenticateUser();
   }, []);
+
+  const authenticateUser = async () => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware) {
+        Alert.alert('Error', 'Your device does not have fingerprint sensor');
+        setIsAuthenticated(true); // Allow access if no hardware
+        return;
+      }
+
+      if (!isEnrolled) {
+        Alert.alert('Error', 'No fingerprint enrolled on this device');
+        setIsAuthenticated(true); // Allow access if no fingerprints enrolled
+        return;
+      }
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Please authenticate to view payment methods',
+        fallbackLabel: 'Use passcode',
+        cancelLabel: 'Cancel',
+        disableDeviceFallback: false,
+      });
+
+      if (result.success) {
+        setIsAuthenticated(true);
+        loadPaymentMethods();
+      } else {
+        // If authentication fails, go back
+        router.back();
+      }
+    } catch (error) {
+      console.error('Authentication error:', error);
+      Alert.alert('Error', 'Authentication failed. Please try again.');
+      router.back();
+    }
+  };
 
   const loadPaymentMethods = async () => {
     try {
@@ -67,9 +107,33 @@ export default function PaymentMethods() {
     );
   };
 
-  const handleAddCard = () => {
-    router.push('/(customer)/profile/payment/add' as any);
+  const handleAddCard = async () => {
+    try {
+      // Re-authenticate when adding a new card
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Please authenticate to add a new card',
+        fallbackLabel: 'Use passcode',
+        cancelLabel: 'Cancel',
+        disableDeviceFallback: false,
+      });
+
+      if (result.success) {
+        router.push('/(customer)/profile/payment/add' as any);
+      }
+    } catch (error) {
+      console.error('Authentication error:', error);
+      Alert.alert('Error', 'Authentication failed. Please try again.');
+    }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <MaterialCommunityIcons name="fingerprint" size={64} color="#6C63FF" />
+        <Text style={styles.emptyText}>Authenticating...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

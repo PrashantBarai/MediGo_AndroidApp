@@ -45,15 +45,16 @@ const getStatusColor = (status: string) => {
   switch (status.toUpperCase()) {
     case 'PLACED':
     case 'PENDING':
-      return '#FF9800';
+      return '#FFC107';
     case 'CONFIRMED':
+    case 'PROCESSING':
       return '#2196F3';
     case 'SHIPPED':
-      return '#9C27B0';
+      return '#2196F3';
     case 'DELIVERED':
       return '#4CAF50';
     case 'CANCELLED':
-      return '#F44336';
+      return '#FF5252';
     default:
       return '#666666';
   }
@@ -66,6 +67,7 @@ const getStatusIcon = (status: string) => {
     case 'PENDING':
       return 'time-outline';
     case 'CONFIRMED':
+    case 'PROCESSING':
       return 'checkmark-circle-outline';
     case 'SHIPPED':
       return 'bicycle-outline';
@@ -87,7 +89,14 @@ export default function Orders() {
   const [error, setError] = useState<string | null>(null);
 
   const getDisplayStatus = (status: string): string => {
-    return status === 'placed' ? 'PENDING' : status.toUpperCase();
+    switch (status.toLowerCase()) {
+      case 'placed':
+        return 'PENDING';
+      case 'confirmed':
+        return 'CONFIRMED';
+      default:
+        return status.toUpperCase();
+    }
   };
 
   const fetchOrders = async () => {
@@ -172,36 +181,36 @@ export default function Orders() {
         style={[styles.filterContainer, { maxHeight: 40 }]}
         contentContainerStyle={styles.filterContent}
       >
-        {(['All', 'Pending', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled']).map((status) => (
-          <TouchableOpacity
-            key={status}
-            style={[
-              styles.filterButton,
-              selectedStatus === (status === 'All' ? 'ALL' : status.toUpperCase()) && styles.filterButtonActive,
-            ]}
-            onPress={() => {
-              const newStatus = status === 'All' ? 'ALL' : status.toUpperCase();
-              console.log('Setting status to:', newStatus);
-              setSelectedStatus(newStatus);
-            }}
-          >
-            <Ionicons
-              name={getStatusIcon(status === 'All' ? 'ALL' : status.toUpperCase())}
-              size={14}
-              color={selectedStatus === (status === 'All' ? 'ALL' : status.toUpperCase()) 
-                ? '#FFFFFF' 
-                : getStatusColor(status === 'All' ? 'ALL' : status.toUpperCase())}
-            />
-            <Text
+        {(['All', 'Pending', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled']).map((status) => {
+          const statusForColor = status === 'All' ? 'ALL' : status.toUpperCase();
+          const isSelected = selectedStatus === statusForColor;
+          const statusColor = getStatusColor(statusForColor);
+          
+          return (
+            <TouchableOpacity
+              key={status}
               style={[
-                styles.filterText,
-                selectedStatus === (status === 'All' ? 'ALL' : status.toUpperCase()) && styles.filterTextActive,
+                styles.filterButton,
+                isSelected ? styles.filterButtonActive : { borderColor: statusColor, borderWidth: 1 }
               ]}
+              onPress={() => {
+                setSelectedStatus(statusForColor);
+              }}
             >
-              {status}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Ionicons
+                name={getStatusIcon(statusForColor)}
+                size={14}
+                color={isSelected ? '#FFFFFF' : statusColor}
+              />
+              <Text style={[
+                styles.filterText,
+                isSelected ? styles.filterTextActive : { color: statusColor }
+              ]}>
+                {status}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
       {/* Orders List */}

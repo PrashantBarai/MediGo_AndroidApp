@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCart } from '../../contexts/CartContext';
 import { Colors } from '../../../constants/Colors';
 import { styles } from './styles';
+import { createOrder } from '@/services/order.service';
 
 interface Address {
   fullName: string;
@@ -29,7 +30,7 @@ interface CardDetails {
 }
 
 interface PaymentMethod {
-  id: string;
+  id: 'cod' | 'card' | 'upi';
   name: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   description: string;
@@ -296,7 +297,7 @@ const localStyles = StyleSheet.create({
 export default function Checkout() {
   const router = useRouter();
   const { items, getTotal, clearCart } = useCart();
-  const [selectedPayment, setSelectedPayment] = useState<string>('card');
+  const [selectedPayment, setSelectedPayment] = useState<PaymentMethod['id']>('card');
   const [loading, setLoading] = useState<boolean>(false);
   const [address, setAddress] = useState<Address>({
     fullName: '',
@@ -419,19 +420,7 @@ export default function Checkout() {
         paymentMethod: selectedPayment
       };
 
-      const response = await fetch('http://192.168.1.102:8082/api/orders', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(orderData)
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to place order');
-      }
+      const result = await createOrder(orderData);
 
       // Handle successful order placement
       await clearCart();
@@ -439,7 +428,7 @@ export default function Checkout() {
       // Navigate to success page
       router.push({
         pathname: '/checkout/success',
-        params: { orderId: result.data._id }
+        params: { orderId: result._id }
       });
     } catch (error) {
       console.error('Order placement error:', error);
