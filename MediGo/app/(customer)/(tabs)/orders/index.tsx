@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useCallback } from 'react';
+import { BACKEND_API_URL } from '../../../config/config';
 
 type OrderStatus = 'ALL' | 'PENDING' | 'CONFIRMED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 
@@ -103,7 +104,7 @@ export default function Orders() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://192.168.1.102:8082/api/orders/user?userId=guest');
+      const response = await fetch(`${BACKEND_API_URL}/api/orders/user?userId=guest`);
       if (!response.ok) {
         throw new Error('Failed to fetch orders');
       }

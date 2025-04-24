@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router } from 'expo-router';
+import { BACKEND_API_URL } from '../../../config';
 
 interface ScannerProps {
   onScanComplete: (upiUrl: string) => void;

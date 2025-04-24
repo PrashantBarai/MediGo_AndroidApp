@@ -216,9 +216,12 @@ exports.cancelOrder = async (req, res) => {
       });
     }
 
-    // Update order status to cancelled
-    order.orderStatus = 'cancelled';
-    await order.save();
+    // Update order status to cancelled using findByIdAndUpdate
+    const updatedOrder = await Order.findByIdAndUpdate(
+      req.params.id,
+      { orderStatus: 'cancelled' },
+      { new: true }
+    );
 
     // Restore product quantities
     for (const item of order.items) {
@@ -233,7 +236,7 @@ exports.cancelOrder = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Order cancelled successfully',
-      data: order
+      data: updatedOrder
     });
   } catch (error) {
     console.error('Error cancelling order:', error);

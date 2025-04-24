@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { API_URL } from '../config/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BACKEND_API_URL } from '../config';
 
 export interface OrderItem {
   product: {
@@ -66,60 +67,90 @@ export interface CreateOrderData {
 
 export const getOrders = async (): Promise<Order[]> => {
   try {
-    const response = await axios.get(`${API_URL}/orders`);
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.get(`${BACKEND_API_URL}/api/orders`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching orders:', error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to fetch orders');
   }
 };
 
 export const getOrderById = async (id: string): Promise<Order> => {
   try {
-    const response = await axios.get(`${API_URL}/orders/${id}`);
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.get(`${BACKEND_API_URL}/api/orders/${id}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching order:', error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to fetch order');
   }
 };
 
 export const updateOrderStatus = async (id: string, status: Order['orderStatus']): Promise<Order> => {
   try {
-    const response = await axios.patch(`${API_URL}/orders/${id}/status`, { status });
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.patch(`${BACKEND_API_URL}/api/orders/${id}/status`, { status }, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating order status:', error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to update order status');
   }
 };
 
 export const updatePaymentStatus = async (id: string, paymentStatus: Order['paymentStatus']): Promise<Order> => {
   try {
-    const response = await axios.patch(`${API_URL}/orders/${id}/payment`, { paymentStatus });
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.patch(`${BACKEND_API_URL}/api/orders/${id}/payment`, { paymentStatus }, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating payment status:', error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to update payment status');
   }
 };
 
 export const cancelOrder = async (id: string): Promise<Order> => {
   try {
-    const response = await axios.put(`${API_URL}/orders/${id}/cancel`);
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.put(`${BACKEND_API_URL}/api/orders/${id}/cancel`, {}, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error cancelling order:', error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to cancel order');
   }
 };
 
 export const createOrder = async (orderData: CreateOrderData): Promise<Order> => {
   try {
-    const response = await axios.post(`${API_URL}/orders`, orderData);
-    return response.data.data;
-  } catch (error) {
+    const token = await AsyncStorage.getItem('token');
+    const response = await axios.post(`${BACKEND_API_URL}/api/orders`, orderData, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    return response.data;
+  } catch (error: any) {
     console.error('Error creating order:', error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to create order');
   }
 }; 

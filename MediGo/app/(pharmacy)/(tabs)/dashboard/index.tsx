@@ -3,6 +3,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { BACKEND_API_URL } from '../../../config/config';
 
 interface ProfileData {
   name: string;
@@ -41,9 +42,6 @@ export default function Dashboard() {
     lowStockProducts: 0
   });
   const [isLoading, setIsLoading] = useState(true);
-
-  // Base URL for API
-  const API_BASE_URL = 'http://192.168.1.102:8082';
 
   useEffect(() => {
     loadProfileData();
@@ -98,7 +96,7 @@ export default function Dashboard() {
       // TODO: Uncomment this when the API is ready
       /*
       // Fetch orders stats
-      const ordersResponse = await fetch(`${API_BASE_URL}/api/orders/stats`, {
+      const ordersResponse = await fetch(`${BACKEND_API_URL}/api/orders/stats`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -113,7 +111,7 @@ export default function Dashboard() {
       const ordersStats = await ordersResponse.json();
       
       // Fetch products stats
-      const productsResponse = await fetch(`${API_BASE_URL}/api/products/stats`, {
+      const productsResponse = await fetch(`${BACKEND_API_URL}/api/products/stats`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',

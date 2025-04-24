@@ -9,6 +9,8 @@ import QRCode from 'qrcode';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
+import { BACKEND_API_URL } from '../../config/config';
+import { cancelOrder } from '../../../services/order.service';
 
 interface CartItem {
   id: string;
@@ -103,7 +105,7 @@ export default function OrderDetails() {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`http://192.168.1.102:8082/api/orders/${id}`);
+      const response = await fetch(`${BACKEND_API_URL}/api/orders/${id}`);
       if (!response.ok) {
         throw new Error('Order not found');
       }
@@ -183,7 +185,7 @@ export default function OrderDetails() {
           onPress: async () => {
             try {
               setLoading(true);
-              const response = await fetch(`http://192.168.1.102:8082/api/orders/${id}/cancel`, {
+              const response = await fetch(`${BACKEND_API_URL}/api/orders/${id}/cancel`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
@@ -200,24 +202,18 @@ export default function OrderDetails() {
                 [
                   {
                     text: 'OK',
-                    onPress: () => {
-                      // Go back to orders list - it will refresh due to useFocusEffect
-                      router.back();
-                    },
-                  },
+                    onPress: () => router.back()
+                  }
                 ]
               );
             } catch (error) {
               console.error('Error cancelling order:', error);
-              Alert.alert(
-                'Error',
-                'Order cancel nahi ho paya. Please try again later.'
-              );
+              Alert.alert('Error', 'Order cancel nahi ho paya. Please try again.');
             } finally {
               setLoading(false);
             }
-          },
-        },
+          }
+        }
       ]
     );
   };
@@ -264,7 +260,7 @@ export default function OrderDetails() {
     try {
       // Store stock checks in component state for use in showSuccessAlert
       stockChecks = await Promise.all(order?.items.map(async (item) => {
-        const response = await fetch(`http://192.168.1.102:8082/api/products/${item.product._id}`);
+        const response = await fetch(`${BACKEND_API_URL}/api/products/${item.product._id}`);
         if (!response.ok) throw new Error(`Could not check stock for ${item.product.name}`);
         const productData = await response.json();
         
@@ -272,7 +268,7 @@ export default function OrderDetails() {
         const imageUrl = productData.images && productData.images.length > 0 
           ? (productData.images[0].startsWith('http') 
             ? productData.images[0] 
-            : `http://192.168.1.102:8082${productData.images[0]}`)
+            : `${BACKEND_API_URL}${productData.images[0]}`)
           : null;
         
         return {

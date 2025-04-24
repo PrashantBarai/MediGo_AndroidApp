@@ -3,6 +3,7 @@ const cors = require('cors');
 const connectDB = require('./config/db.config');
 const errorMiddleware = require('./middleware/error.middleware');
 const { testB2Connection } = require('./services/b2.service');
+const { BACKEND_API_URL, FRONTEND_URL } = require('./src/config/config');
 require('dotenv').config();
 
 // Check if B2 environment variables are loaded
@@ -16,7 +17,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: '*',
+  origin: FRONTEND_URL,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));

@@ -205,15 +205,15 @@ export default function Orders() {
             <TouchableOpacity
               key={order._id}
               onPress={() => handleViewDetails(order)}
-              style={{
-                backgroundColor: 'white',
+            style={{
+              backgroundColor: 'white',
                 borderRadius: 12,
-                padding: 16,
+              padding: 16,
                 marginBottom: 16,
-                elevation: 2,
-                shadowColor: '#000',
+              elevation: 2,
+              shadowColor: '#000',
                 shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.1,
+              shadowOpacity: 0.1,
                 shadowRadius: 2,
               }}
             >
@@ -234,7 +234,7 @@ export default function Orders() {
               <View style={{ marginBottom: 8 }}>
                 <Text style={{ color: '#666', fontSize: 14 }}>{order.deliveryAddress.fullName}</Text>
                 <Text style={{ color: '#666', fontSize: 14 }}>{order.deliveryAddress.phoneNumber}</Text>
-              </View>
+            </View>
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: '#666', fontSize: 14 }}>{formatDate(order.orderDate)}</Text>
@@ -253,24 +253,24 @@ export default function Orders() {
         onRequestClose={() => setShowDetails(false)}
       >
         {selectedOrder && (
-          <View style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            justifyContent: 'flex-end'
-          }}>
-            <View style={{
-              backgroundColor: 'white',
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              padding: 24,
+        <View style={{ 
+          flex: 1, 
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          justifyContent: 'flex-end'
+        }}>
+          <View style={{ 
+            backgroundColor: 'white',
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            padding: 24,
               maxHeight: '80%'
-            }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <Text style={{ fontSize: 20, fontWeight: '700' }}>Order Details</Text>
-                <TouchableOpacity onPress={() => setShowDetails(false)}>
-                  <MaterialCommunityIcons name="close" size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity onPress={() => setShowDetails(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
 
               <ScrollView>
                 <View style={{ marginBottom: 16 }}>
@@ -286,7 +286,7 @@ export default function Orders() {
                     <Text style={{ color: getStatusColor(selectedOrder.orderStatus as OrderStatusType).text, fontSize: 12, fontWeight: '600' }}>
                       {selectedOrder.orderStatus.charAt(0).toUpperCase() + selectedOrder.orderStatus.slice(1)}
                     </Text>
-                  </View>
+                </View>
                   <Text style={{ color: '#666', fontSize: 14 }}>{formatDate(selectedOrder.orderDate)}</Text>
                 </View>
 
@@ -347,7 +347,7 @@ export default function Orders() {
                   </Text>
                   <Text style={{ color: '#666', fontSize: 14 }}>
                     Status: {selectedOrder.paymentStatus.charAt(0).toUpperCase() + selectedOrder.paymentStatus.slice(1)}
-                  </Text>
+                    </Text>
                 </View>
 
                 {/* Order Actions */}

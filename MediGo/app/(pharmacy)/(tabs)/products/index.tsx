@@ -1,13 +1,13 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, Image, Platform, Alert, StyleSheet, ActivityIndicator } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, Image, Platform, Alert, StyleSheet, ActivityIndicator, ToastAndroid } from 'react-native';
+import { MaterialCommunityIcons, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SearchBar } from 'react-native-elements';
-
-// Add API_URL constant
-const API_URL = 'http://192.168.1.102:8082/api';
+import { useLocalSearchParams, router } from 'expo-router';
+import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
+import { BACKEND_API_URL } from '../../../config/config';
 
 interface Product {
   id: string;
@@ -313,40 +313,19 @@ export default function Products() {
   // Add fetchProducts function
   const fetchProducts = async () => {
     try {
-      const apiUrls = [
-        'http://192.168.1.102:8082/api/products',
-        'http://localhost:8082/api/products',
-        'http://10.0.2.2:8082/api/products'
-      ];
+      setIsLoading(true);
+      setError(null);
       
-      let response = null;
-      let error = null;
+      const response = await fetch(`${BACKEND_API_URL}/api/products`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
       
-      for (const apiUrl of apiUrls) {
-        try {
-          console.log(`Trying to fetch products from: ${apiUrl}`);
-          
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000);
-          
-          response = await fetch(apiUrl, {
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          
-          if (response.ok) {
-            console.log(`Successfully connected to: ${apiUrl}`);
-            break;
-          }
-        } catch (err) {
-          console.error(`Failed to connect to ${apiUrl}:`, err);
-          error = err;
-        }
-      }
-      
-      if (!response || !response.ok) {
-        throw error || new Error('Failed to fetch products from all URLs');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
@@ -456,41 +435,16 @@ export default function Products() {
     if (product) {
       try {
         // Fetch the latest product data from the server
-        const apiUrls = [
-          `http://192.168.1.102:8082/api/products/${product.id}`,
-          `http://localhost:8082/api/products/${product.id}`,
-          `http://10.0.2.2:8082/api/products/${product.id}` // Android emulator localhost
-        ];
+        const response = await fetch(`${BACKEND_API_URL}/api/products/${product.id}`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        });
         
-        let response = null;
-        let error = null;
-        
-        for (const apiUrl of apiUrls) {
-          try {
-            console.log(`Fetching product details from: ${apiUrl}`);
-            
-            // Add timeout to the fetch request
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-            
-            response = await fetch(apiUrl, {
-              signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (response.ok) {
-              console.log(`Successfully fetched product details from: ${apiUrl}`);
-              break;
-            }
-          } catch (err) {
-            console.error(`Failed to fetch product details from ${apiUrl}:`, err);
-            error = err;
-          }
-        }
-        
-        if (!response || !response.ok) {
-          throw error || new Error('Failed to fetch product details');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         const updatedProductData = await response.json();
@@ -549,9 +503,9 @@ export default function Products() {
           setValidUntilDate({ day: '', month: '', year: '' });
         }
         
-    setIsEditing(true);
+        setIsEditing(true);
         setIsAdding(false);
-    setShowDetails(true);
+        setShowDetails(true);
       } catch (error) {
         console.error('Error fetching product details:', error);
         Alert.alert('Error', 'Failed to fetch product details. Please try again.');
@@ -686,7 +640,7 @@ export default function Products() {
       }
 
       // Make API request
-      const response = await fetch(`${API_URL}/products${selectedProduct._id ? `/${selectedProduct._id}` : ''}`, {
+      const response = await fetch(`${BACKEND_API_URL}/products${selectedProduct._id ? `/${selectedProduct._id}` : ''}`, {
         method: selectedProduct._id ? 'PUT' : 'POST',
         body: formData,
           headers: {
@@ -736,7 +690,7 @@ export default function Products() {
             onPress: async () => {
               try {
                 setIsDeleting(productId);
-                const response = await fetch(`${API_URL}/products/${productId}`, {
+                const response = await fetch(`${BACKEND_API_URL}/products/${productId}`, {
                   method: 'DELETE',
                 });
 

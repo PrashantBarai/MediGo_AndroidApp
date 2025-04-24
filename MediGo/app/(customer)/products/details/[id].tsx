@@ -4,6 +4,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useState, useEffect } from 'react';
 import { useCart } from '../../../contexts/CartContext';
+import { BACKEND_API_URL } from '../../../config/config';
 
 interface Product {
   id: string;
@@ -57,16 +58,7 @@ export default function ProductDetailsScreen() {
         setLoading(true);
         setError(null);
         
-        const apiUrl = `http://192.168.1.102:8082/api/products/${id}`;
-        console.log('Fetching product from:', apiUrl);
-        
-        const response = await fetch(apiUrl, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-        });
+        const response = await fetch(`${BACKEND_API_URL}/api/products/${id}`);
         
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);

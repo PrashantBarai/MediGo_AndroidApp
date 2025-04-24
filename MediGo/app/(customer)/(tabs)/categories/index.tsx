@@ -2,6 +2,7 @@ import { View, Text, ScrollView, TextInput, TouchableOpacity, Dimensions, Activi
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState, useEffect } from 'react';
+import { BACKEND_API_URL } from '../../../config/config';
 
 interface Category {
   id: string;
@@ -65,7 +66,7 @@ export default function Categories() {
         setLoading(true);
         setError(null);
         
-        const response = await fetch('http://192.168.1.102:8082/api/products/category-counts');
+        const response = await fetch(`${BACKEND_API_URL}/api/products/category-counts`);
         if (!response.ok) {
           throw new Error('Failed to fetch category counts');
         }

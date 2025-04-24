@@ -4,6 +4,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useEffect } from 'react';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
 import { useCart } from '../../contexts/CartContext';
+import { BACKEND_API_URL } from '../../config/config';
 
 interface Product {
   id: string;
@@ -50,11 +51,7 @@ export default function ProductsScreen() {
         setLoading(true);
         setError(null);
         
-        // Use your computer's IP address for mobile testing
-        const apiUrl = 'http://192.168.1.102:8082/api/products';
-        console.log('Fetching products from:', apiUrl);
-        
-        const response = await fetch(apiUrl, {
+        const response = await fetch(`${BACKEND_API_URL}/api/products`, {
           method: 'GET',
           headers: {
             'Accept': 'application/json',
